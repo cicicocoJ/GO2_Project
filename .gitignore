@@ -1,0 +1,25 @@
+# build
+build/
+install/
+log/
+
+# Python
+__pycache__/
+*.pyc
+
+# VSCode
+.vscode/
+
+# ROS
+*.db3
+*.bag
+
+# cache
+.cache/
+
+# cmake
+CMakeFiles/
+CMakeCache.txt
+
+# temporary
+*.swp
