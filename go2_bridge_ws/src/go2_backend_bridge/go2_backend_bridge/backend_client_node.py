@@ -3,23 +3,24 @@
 """
 backend_client_node.py
 
-GO2 巡检机器人项目的机器人端中转节点。
+GO2 巡检机器人项目的机器人端后台中转节点。
 
-第一版最小闭环：
+升级版功能：
 
-    ROS2 topic /inspection_state
-        -> backend_client_node
-        -> WebSocket
-        -> FastAPI 后台
-        -> HTTP command 接口
-        -> WebSocket
-        -> ROS2 topic /backend_command
+    1. 订阅 /inspection_state
+       获取机器人简单业务状态，例如 IDLE、PATROLLING、ERROR。
 
-说明：
-1. 本版本只使用 std_msgs/String。
-2. 不依赖 Unitree 自定义消息。
-3. 不接入真实导航、图像识别、SLAM 或 GO2 SDK。
-4. 主要目的是验证 Jetson 与后台之间的通信链路。
+    2. 订阅 /go2_status_json
+       获取 GO2 真实状态读取节点发布的详细 JSON，
+       包括电量、速度、位置、姿态、底层状态等。
+
+    3. 通过 WebSocket 周期性上传完整状态到 FastAPI 后台。
+
+    4. 接收后台 command，并转发到 ROS2 /backend_command。
+
+注意：
+    本节点仍然不直接控制 GO2。
+    它只是“后台通信中转站”。
 """
 
 import asyncio
@@ -41,9 +42,7 @@ def utc_timestamp():
     生成 UTC 时间戳字符串。
 
     示例：
-        2026-06-30T09:30:00Z
-
-    后台收到状态或应答时，可以用这个字段判断消息产生时间。
+        2026-07-01T09:30:00Z
     """
     return datetime.utcnow().replace(microsecond=0).isoformat() + 'Z'
 
@@ -52,61 +51,47 @@ class BackendClientNode(Node):
     """
     机器人端后台中转节点。
 
-    ROS2 侧功能：
+    ROS2 侧：
         订阅：
-            /inspection_state  std_msgs/String
-            表示机器人当前巡检状态，例如 IDLE、PATROLLING、PAUSED。
+            /inspection_state     std_msgs/String
+            /go2_status_json      std_msgs/String
 
         发布：
-            /backend_command   std_msgs/String
-            用于把后台下发的 command 转发到 ROS2 内部。
+            /backend_command      std_msgs/String
 
-    后台通信侧功能：
-        通过 WebSocket 连接 FastAPI 后台：
-            ws://<后台IP>:8000/ws/robot/GO2_001
-
-        主动发送：
-            register    机器人注册消息
-            status      机器人状态消息
-
-        被动接收：
-            command     后台命令
-
-        回复：
-            command_ack 命令接收确认
+    后台通信侧：
+        WebSocket 连接 FastAPI 后台。
     """
 
     def __init__(self):
         super().__init__('backend_client_node')
 
         # ============================================================
-        # 1. 声明 ROS2 参数
+        # 1. ROS2 参数
         # ============================================================
 
-        # 机器人编号。
-        # 后台通过 robot_id 区分不同机器人。
         self.declare_parameter('robot_id', 'GO2_001')
 
-        # 后台 WebSocket 地址。
-        #
-        # 如果后台 server.py 跑在 Jetson 本机：
-        #     ws://127.0.0.1:8000/ws/robot/GO2_001
-        #
-        # 如果后台 server.py 跑在笔记本电脑：
-        #     ws://笔记本IP:8000/ws/robot/GO2_001
         self.declare_parameter(
             'server_url',
             'ws://127.0.0.1:8000/ws/robot/GO2_001'
         )
 
-        # 状态上传周期，单位：秒。
-        # 第一版设置为 1 秒上传一次状态。
         self.declare_parameter('upload_period_sec', 1.0)
-
-        # WebSocket 断开后的重连等待时间，单位：秒。
         self.declare_parameter('reconnect_delay_sec', 3.0)
 
-        # 读取 ROS2 参数值。
+        # 简单状态输入话题。
+        self.declare_parameter(
+            'inspection_state_topic',
+            '/inspection_state'
+        )
+
+        # GO2 详细状态 JSON 输入话题。
+        self.declare_parameter(
+            'go2_status_json_topic',
+            '/go2_status_json'
+        )
+
         self.robot_id = self.get_parameter(
             'robot_id'
         ).get_parameter_value().string_value
@@ -123,36 +108,47 @@ class BackendClientNode(Node):
             'reconnect_delay_sec'
         ).get_parameter_value().double_value
 
+        self.inspection_state_topic = self.get_parameter(
+            'inspection_state_topic'
+        ).get_parameter_value().string_value
+
+        self.go2_status_json_topic = self.get_parameter(
+            'go2_status_json_topic'
+        ).get_parameter_value().string_value
+
         # ============================================================
         # 2. 节点内部状态缓存
         # ============================================================
 
-        # 由于 rclpy 的 spin 在一个线程中运行，而 asyncio 的 WebSocket
-        # 循环在另一个上下文中运行，所以这里用锁保护共享状态。
         self._lock = threading.Lock()
 
-        # 机器人初始状态。
-        # 后续如果收到 /inspection_state，就会更新这个值。
+        # 简单业务状态。
         self._state = 'INIT'
-
-        # 最近一次收到 /inspection_state 的本地时间戳。
         self._last_state_update_time = None
+
+        # GO2 详细状态 JSON。
+        self._go2_status = None
+        self._last_go2_status_update_time = None
+        self._last_go2_status_raw = None
 
         # ============================================================
         # 3. ROS2 topic 接口
         # ============================================================
 
-        # 订阅机器人状态。
-        # 第一版用 std_msgs/String 简化验证。
         self.state_sub = self.create_subscription(
             String,
-            '/inspection_state',
+            self.inspection_state_topic,
             self.inspection_state_callback,
             10
         )
 
-        # 发布后台命令。
-        # 第一版直接把完整 command JSON 转成 String 发布出去。
+        self.go2_status_sub = self.create_subscription(
+            String,
+            self.go2_status_json_topic,
+            self.go2_status_json_callback,
+            10
+        )
+
         self.command_pub = self.create_publisher(
             String,
             '/backend_command',
@@ -162,76 +158,178 @@ class BackendClientNode(Node):
         self.get_logger().info('backend_client_node initialized')
         self.get_logger().info('robot_id: {}'.format(self.robot_id))
         self.get_logger().info('server_url: {}'.format(self.server_url))
+        self.get_logger().info(
+            'inspection_state_topic: {}'.format(
+                self.inspection_state_topic
+            )
+        )
+        self.get_logger().info(
+            'go2_status_json_topic: {}'.format(
+                self.go2_status_json_topic
+            )
+        )
 
     def inspection_state_callback(self, msg):
         """
-        /inspection_state 的回调函数。
+        /inspection_state 回调函数。
 
         输入示例：
-            ros2 topic pub /inspection_state std_msgs/String "{data: 'PATROLLING'}" -r 1
+            IDLE
+            PATROLLING
+            ERROR
 
-        收到后：
-            self._state = 'PATROLLING'
-
-        后续 status_upload_loop 会每秒把这个状态上传给后台。
+        这个状态会作为后台 status 的主 state 字段。
         """
         with self._lock:
             self._state = msg.data
             self._last_state_update_time = time.time()
 
         self.get_logger().info(
-            'Received /inspection_state: {}'.format(msg.data)
+            'Received {}: {}'.format(
+                self.inspection_state_topic,
+                msg.data
+            )
+        )
+
+    def go2_status_json_callback(self, msg):
+        """
+        /go2_status_json 回调函数。
+
+        go2_state_reader_node 会把 GO2 真实状态整理成 JSON 字符串，
+        本节点收到后缓存起来，下一次状态上传时一起发送给后台。
+        """
+        try:
+            data = json.loads(msg.data)
+        except json.JSONDecodeError:
+            self.get_logger().warning(
+                'Received invalid go2_status_json: {}'.format(msg.data)
+            )
+            return
+
+        with self._lock:
+            self._go2_status = data
+            self._last_go2_status_update_time = time.time()
+            self._last_go2_status_raw = msg.data
+
+        simple_state = data.get('simple_state')
+        battery_soc = data.get('battery_soc')
+        speed_norm = data.get('speed_norm')
+
+        self.get_logger().debug(
+            'Received go2_status_json: simple_state={}, battery_soc={}, speed_norm={}'.format(
+                simple_state,
+                battery_soc,
+                speed_norm
+            )
         )
 
     def make_register_payload(self):
         """
         生成机器人注册消息。
-
-        这个消息在 WebSocket 每次连接成功后发送一次。
-        后台可以通过它知道是哪台机器人上线了。
         """
         return {
             'type': 'register',
             'robot_id': self.robot_id,
             'timestamp': utc_timestamp(),
             'client': 'go2_backend_bridge',
-            'version': '0.1.0',
+            'version': '0.2.0',
+            'features': [
+                'inspection_state',
+                'go2_status_json',
+                'backend_command',
+                'command_ack',
+            ],
         }
 
     def make_status_payload(self):
         """
-        生成机器人状态消息。
+        生成上传给后台的机器人状态消息。
 
-        第一版字段：
-            robot_id             机器人编号
-            timestamp            时间戳
-            state                当前状态
-            battery              电池电量，第一版先写 None
-            current_checkpoint   当前巡检点，第一版先写 None
+        第一层字段给后台快速显示：
+            state
+            battery
+            speed_norm
+            position
+            yaw_speed
 
-        后续可以把 battery 接入 GO2 真实状态，把 current_checkpoint
-        接入巡检任务状态机。
+        go2_status 字段保留完整详细状态，后续后台需要更多信息时可直接使用。
         """
         with self._lock:
             state = self._state
             last_state_update_time = self._last_state_update_time
+            go2_status = self._go2_status
+            last_go2_status_update_time = self._last_go2_status_update_time
+
+        now = time.time()
+
+        state_age_sec = None
+        if last_state_update_time is not None:
+            state_age_sec = now - last_state_update_time
+
+        go2_status_age_sec = None
+        if last_go2_status_update_time is not None:
+            go2_status_age_sec = now - last_go2_status_update_time
+
+        battery = None
+        speed_norm = None
+        position = None
+        velocity = None
+        yaw_speed = None
+        go2_simple_state = None
+        sport_received = False
+        lowstate_received = False
+
+        if isinstance(go2_status, dict):
+            battery = go2_status.get('battery_soc')
+            speed_norm = go2_status.get('speed_norm')
+            go2_simple_state = go2_status.get('simple_state')
+            sport_received = bool(go2_status.get('sport_received', False))
+            lowstate_received = bool(go2_status.get('lowstate_received', False))
+
+            sport = go2_status.get('sport')
+            if isinstance(sport, dict):
+                position = sport.get('position')
+                velocity = sport.get('velocity')
+                yaw_speed = sport.get('yaw_speed')
+
+            # 如果 /inspection_state 暂时没有更新，但详细状态里有 simple_state，
+            # 可以作为兜底状态。
+            if state in ('INIT', '', None) and go2_simple_state:
+                state = go2_simple_state
 
         return {
             'type': 'status',
             'robot_id': self.robot_id,
             'timestamp': utc_timestamp(),
+
+            # 后台原有字段。
             'state': state,
-            'battery': None,
+            'battery': battery,
             'current_checkpoint': None,
+
+            # 新增真实 GO2 状态摘要。
+            'speed_norm': speed_norm,
+            'position': position,
+            'velocity': velocity,
+            'yaw_speed': yaw_speed,
+            'go2_simple_state': go2_simple_state,
+            'sport_received': sport_received,
+            'lowstate_received': lowstate_received,
+
+            # 状态新鲜度。
             'last_state_update_time': last_state_update_time,
+            'state_age_sec': state_age_sec,
+            'last_go2_status_update_time': last_go2_status_update_time,
+            'go2_status_age_sec': go2_status_age_sec,
+            'go2_status_received': go2_status is not None,
+
+            # 完整详细状态。
+            'go2_status': go2_status,
         }
 
     def publish_backend_command(self, command_msg):
         """
         把后台下发的 command 转发到 ROS2 topic /backend_command。
-
-        第一版为了简单，直接发布 JSON 字符串。
-        后续如果命令类型稳定，可以改成自定义 ROS2 msg。
         """
         ros_msg = String()
         ros_msg.data = json.dumps(command_msg, ensure_ascii=False)
@@ -251,12 +349,6 @@ class BackendClientNode(Node):
 async def status_upload_loop(node, websocket):
     """
     状态上传协程。
-
-    功能：
-        每隔 upload_period_sec 秒读取一次节点内部状态，
-        然后通过 WebSocket 发送给后台。
-
-    只要 ROS2 没有关闭，并且 WebSocket 没有断开，就一直循环发送。
     """
     while rclpy.ok():
         payload = node.make_status_payload()
@@ -268,28 +360,13 @@ async def command_receive_loop(node, websocket):
     """
     后台命令接收协程。
 
-    后台下发命令的 JSON 格式示例：
-
-        {
-            "type": "command",
-            "robot_id": "GO2_001",
-            "timestamp": "2026-06-30T09:30:00Z",
-            "command_id": "cmd-xxx",
-            "command": "PAUSE_TASK",
-            "payload": {}
-        }
-
-    本节点收到后会：
-        1. 检查 type 是否为 command；
-        2. 检查 command 字段；
-        3. 如果没有 command_id，则自动生成；
-        4. 发布到 ROS2 topic /backend_command；
-        5. 回传 command_ack 给后台。
+    收到后台 command 后：
+        1. 发布到 /backend_command
+        2. 回传 command_ack
     """
     while rclpy.ok():
         raw_msg = await websocket.recv()
 
-        # 尝试把收到的字符串解析为 JSON。
         try:
             data = json.loads(raw_msg)
         except json.JSONDecodeError:
@@ -300,7 +377,6 @@ async def command_receive_loop(node, websocket):
 
         msg_type = data.get('type')
 
-        # 第一版只处理 type=command 的消息。
         if msg_type != 'command':
             node.get_logger().info(
                 'Received non-command message: {}'.format(data)
@@ -310,26 +386,21 @@ async def command_receive_loop(node, websocket):
         command = data.get('command')
         command_id = data.get('command_id')
 
-        # command 字段是必须的。
         if not command:
             node.get_logger().warning(
                 'Received command without command field: {}'.format(data)
             )
             continue
 
-        # 如果后台没有给 command_id，本地生成一个，便于后续追踪。
         if not command_id:
             command_id = str(uuid.uuid4())
             data['command_id'] = command_id
 
-        # 保证转发到 ROS2 的命令里带 robot_id。
         if 'robot_id' not in data:
             data['robot_id'] = node.robot_id
 
-        # 将后台命令发布到 ROS2 内部。
         node.publish_backend_command(data)
 
-        # 生成命令确认消息。
         ack_payload = {
             'type': 'command_ack',
             'robot_id': node.robot_id,
@@ -340,7 +411,6 @@ async def command_receive_loop(node, websocket):
             'message': 'Command received and published to /backend_command',
         }
 
-        # 回传 command_ack。
         try:
             await websocket.send(json.dumps(ack_payload, ensure_ascii=False))
             node.get_logger().info(
@@ -359,13 +429,8 @@ async def websocket_main_loop(node):
     """
     WebSocket 主循环。
 
-    功能：
-        1. 连接后台；
-        2. 连接成功后发送 register；
-        3. 同时启动状态上传协程和命令接收协程；
-        4. 如果连接断开，则等待 reconnect_delay_sec 后自动重连。
-
-    这保证了后台重启、网络波动时，Jetson 端节点不会直接退出。
+    连接后台，发送 register，上传 status，接收 command。
+    断线后自动重连。
     """
     while rclpy.ok():
         try:
@@ -378,20 +443,16 @@ async def websocket_main_loop(node):
                 ping_interval=20,
                 ping_timeout=10,
                 close_timeout=5,
-                max_size=2 * 1024 * 1024,
+                max_size=4 * 1024 * 1024,
             ) as websocket:
                 node.get_logger().info('WebSocket connected')
 
-                # 每次 WebSocket 建立连接后，先发注册消息。
                 register_payload = node.make_register_payload()
                 await websocket.send(
                     json.dumps(register_payload, ensure_ascii=False)
                 )
                 node.get_logger().info('Register message sent')
 
-                # 同时运行两个任务：
-                # 1. 周期性上传状态；
-                # 2. 接收后台命令。
                 status_task = asyncio.create_task(
                     status_upload_loop(node, websocket)
                 )
@@ -399,17 +460,14 @@ async def websocket_main_loop(node):
                     command_receive_loop(node, websocket)
                 )
 
-                # 任意一个任务异常退出，就认为连接需要重建。
                 done, pending = await asyncio.wait(
                     [status_task, receive_task],
                     return_when=asyncio.FIRST_EXCEPTION
                 )
 
-                # 取消还没结束的任务。
                 for task in pending:
                     task.cancel()
 
-                # 如果已结束的任务带异常，就抛出异常进入重连流程。
                 for task in done:
                     exc = task.exception()
                     if exc:
@@ -432,18 +490,6 @@ async def websocket_main_loop(node):
 def main(args=None):
     """
     ROS2 节点入口函数。
-
-    setup.py 中的 console_scripts 会调用这里：
-
-        backend_client_node = go2_backend_bridge.backend_client_node:main
-
-    运行命令：
-
-        ros2 run go2_backend_bridge backend_client_node
-
-    这里采用：
-        rclpy spin 放在线程中；
-        asyncio WebSocket 主循环放在主线程中。
     """
     rclpy.init(args=args)
 
@@ -452,7 +498,6 @@ def main(args=None):
     executor = rclpy.executors.SingleThreadedExecutor()
     executor.add_node(node)
 
-    # 用后台线程处理 ROS2 subscription / publisher 回调。
     spin_thread = threading.Thread(
         target=executor.spin,
         daemon=True
@@ -460,14 +505,12 @@ def main(args=None):
     spin_thread.start()
 
     try:
-        # 主线程运行 WebSocket 异步循环。
         asyncio.run(websocket_main_loop(node))
 
     except KeyboardInterrupt:
         node.get_logger().info('KeyboardInterrupt received, shutting down...')
 
     finally:
-        # 退出时清理 ROS2 节点和 executor。
         executor.shutdown()
         node.destroy_node()
         rclpy.shutdown()
