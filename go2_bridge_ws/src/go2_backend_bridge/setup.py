@@ -34,6 +34,7 @@ setup(
             # This enables:
             # ros2 run go2_backend_bridge backend_client_node
             'backend_client_node = go2_backend_bridge.backend_client_node:main',
+            'go2_state_reader_node = go2_backend_bridge.go2_state_reader_node:main',
         ],
     },
 )
