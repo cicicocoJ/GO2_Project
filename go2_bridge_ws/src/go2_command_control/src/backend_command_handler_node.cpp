@@ -22,17 +22,20 @@ public:
     sport_client_(this)
   {
     this->declare_parameter<double>("linear_speed_x", 0.30);
-    this->declare_parameter<double>("linear_speed_y", 0.20);
-    this->declare_parameter<double>("yaw_speed", 0.50);
-    this->declare_parameter<double>("move_duration_sec", 1.0);
+    this->declare_parameter<double>("linear_speed_y", 0.25);
+    this->declare_parameter<double>("yaw_speed", 0.70);
+    this->declare_parameter<double>("move_duration_sec", 1.5);
     this->declare_parameter<double>("control_period_sec", 0.1);
 
-    // Safety limits. Conservative values for first-batch testing.
+    // Safety limits.
     this->declare_parameter<double>("max_linear_speed_x", 0.40);
     this->declare_parameter<double>("max_linear_speed_y", 0.30);
     this->declare_parameter<double>("max_yaw_speed", 0.80);
     this->declare_parameter<double>("max_move_duration_sec", 2.0);
     this->declare_parameter<int>("emergency_stop_repeat", 3);
+
+    // Before posture actions, optionally send StopMove once.
+    this->declare_parameter<bool>("stop_before_posture", true);
 
     linear_speed_x_ = this->get_parameter("linear_speed_x").as_double();
     linear_speed_y_ = this->get_parameter("linear_speed_y").as_double();
@@ -45,6 +48,7 @@ public:
     max_yaw_speed_ = this->get_parameter("max_yaw_speed").as_double();
     max_move_duration_sec_ = this->get_parameter("max_move_duration_sec").as_double();
     emergency_stop_repeat_ = this->get_parameter("emergency_stop_repeat").as_int();
+    stop_before_posture_ = this->get_parameter("stop_before_posture").as_bool();
 
     linear_speed_x_ = clampAbs(linear_speed_x_, max_linear_speed_x_);
     linear_speed_y_ = clampAbs(linear_speed_y_, max_linear_speed_y_);
@@ -71,16 +75,28 @@ public:
     }
 
     RCLCPP_INFO(this->get_logger(), "backend_command_handler_node started.");
-    RCLCPP_INFO(this->get_logger(), "Commands:");
+
+    RCLCPP_INFO(this->get_logger(), "Safe motion commands:");
     RCLCPP_INFO(this->get_logger(), "  MOVE_FORWARD, MOVE_BACKWARD, MOVE_LEFT, MOVE_RIGHT");
     RCLCPP_INFO(this->get_logger(), "  TURN_LEFT, TURN_RIGHT, STOP_MOVE, EMERGENCY_STOP");
-    RCLCPP_INFO(this->get_logger(), "Compatible:");
+
+    RCLCPP_INFO(this->get_logger(), "Posture commands:");
+    RCLCPP_INFO(this->get_logger(), "  STAND_DOWN, STAND_UP, BALANCE_STAND, RECOVERY_STAND");
+    RCLCPP_INFO(this->get_logger(), "  SIT, RISE_SIT, DAMP");
+
+    RCLCPP_INFO(this->get_logger(), "Compatible commands:");
     RCLCPP_INFO(this->get_logger(), "  START_TASK -> MOVE_FORWARD");
     RCLCPP_INFO(this->get_logger(), "  STOP_TASK / PAUSE_TASK -> STOP_MOVE");
+
     RCLCPP_INFO(
       this->get_logger(),
-      "Params: linear_speed_x=%.3f, linear_speed_y=%.3f, yaw_speed=%.3f, move_duration_sec=%.3f, control_period_sec=%.3f",
-      linear_speed_x_, linear_speed_y_, yaw_speed_, move_duration_sec_, control_period_sec_
+      "Params: linear_speed_x=%.3f, linear_speed_y=%.3f, yaw_speed=%.3f, move_duration_sec=%.3f, control_period_sec=%.3f, stop_before_posture=%s",
+      linear_speed_x_,
+      linear_speed_y_,
+      yaw_speed_,
+      move_duration_sec_,
+      control_period_sec_,
+      stop_before_posture_ ? "true" : "false"
     );
   }
 
@@ -170,6 +186,31 @@ private:
       return "STOP_MOVE";
     }
 
+    // Chinese aliases. These are optional, useful for manual debugging.
+    if (command == "卧倒") {
+      return "STAND_DOWN";
+    }
+
+    if (command == "站立") {
+      return "STAND_UP";
+    }
+
+    if (command == "平衡站立") {
+      return "BALANCE_STAND";
+    }
+
+    if (command == "恢复站立") {
+      return "RECOVERY_STAND";
+    }
+
+    if (command == "坐下") {
+      return "SIT";
+    }
+
+    if (command == "起坐" || command == "坐姿起来") {
+      return "RISE_SIT";
+    }
+
     return command;
   }
 
@@ -186,6 +227,7 @@ private:
     RCLCPP_INFO(this->get_logger(), "Received backend command: raw='%s', normalized='%s'",
                 raw_command.c_str(), command.c_str());
 
+    // First-batch safe motion commands.
     if (command == "MOVE_FORWARD") {
       startTimedMove(+linear_speed_x_, 0.0, 0.0, "MOVE_FORWARD");
     } else if (command == "MOVE_BACKWARD") {
@@ -202,6 +244,22 @@ private:
       stopMove("STOP_MOVE");
     } else if (command == "EMERGENCY_STOP") {
       emergencyStop();
+
+    // Second-batch posture commands.
+    } else if (command == "STAND_DOWN") {
+      runPostureCommand("STAND_DOWN");
+    } else if (command == "STAND_UP") {
+      runPostureCommand("STAND_UP");
+    } else if (command == "BALANCE_STAND") {
+      runPostureCommand("BALANCE_STAND");
+    } else if (command == "RECOVERY_STAND") {
+      runPostureCommand("RECOVERY_STAND");
+    } else if (command == "SIT") {
+      runPostureCommand("SIT");
+    } else if (command == "RISE_SIT") {
+      runPostureCommand("RISE_SIT");
+    } else if (command == "DAMP") {
+      runPostureCommand("DAMP");
     } else {
       RCLCPP_WARN(this->get_logger(), "Unknown command: %s. Raw payload: %s",
                   command.c_str(), msg->data.c_str());
@@ -265,6 +323,45 @@ private:
     RCLCPP_ERROR(this->get_logger(), "Emergency stop finished. Motion state cleared.");
   }
 
+  void runPostureCommand(const std::string & command)
+  {
+    std::lock_guard<std::mutex> lock(motion_mutex_);
+
+    clearMotionStateUnsafe();
+
+    if (stop_before_posture_) {
+      sendStopUnsafe();
+      std::this_thread::sleep_for(100ms);
+    }
+
+    RCLCPP_WARN(this->get_logger(), "Run posture command: %s", command.c_str());
+
+    if (command == "STAND_DOWN") {
+      sport_client_.StandDown(req_);
+      RCLCPP_WARN(this->get_logger(), "Posture command sent: StandDown");
+    } else if (command == "STAND_UP") {
+      sport_client_.StandUp(req_);
+      RCLCPP_WARN(this->get_logger(), "Posture command sent: StandUp");
+    } else if (command == "BALANCE_STAND") {
+      sport_client_.BalanceStand(req_);
+      RCLCPP_WARN(this->get_logger(), "Posture command sent: BalanceStand");
+    } else if (command == "RECOVERY_STAND") {
+      sport_client_.RecoveryStand(req_);
+      RCLCPP_WARN(this->get_logger(), "Posture command sent: RecoveryStand");
+    } else if (command == "SIT") {
+      sport_client_.Sit(req_);
+      RCLCPP_WARN(this->get_logger(), "Posture command sent: Sit");
+    } else if (command == "RISE_SIT") {
+      sport_client_.RiseSit(req_);
+      RCLCPP_WARN(this->get_logger(), "Posture command sent: RiseSit");
+    } else if (command == "DAMP") {
+      sport_client_.Damp(req_);
+      RCLCPP_ERROR(this->get_logger(), "Posture command sent: Damp. Use RECOVERY_STAND or remote controller if needed.");
+    } else {
+      RCLCPP_WARN(this->get_logger(), "Unsupported posture command: %s", command.c_str());
+    }
+  }
+
   void onControlTimer()
   {
     std::lock_guard<std::mutex> lock(motion_mutex_);
@@ -318,9 +415,9 @@ private:
   rclcpp::Time motion_end_time_{0, 0, RCL_ROS_TIME};
 
   double linear_speed_x_{0.30};
-  double linear_speed_y_{0.20};
-  double yaw_speed_{0.50};
-  double move_duration_sec_{1.0};
+  double linear_speed_y_{0.25};
+  double yaw_speed_{0.70};
+  double move_duration_sec_{1.5};
   double control_period_sec_{0.1};
 
   double max_linear_speed_x_{0.40};
@@ -328,6 +425,8 @@ private:
   double max_yaw_speed_{0.80};
   double max_move_duration_sec_{2.0};
   int emergency_stop_repeat_{3};
+
+  bool stop_before_posture_{true};
 };
 
 int main(int argc, char ** argv)

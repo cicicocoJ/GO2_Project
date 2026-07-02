@@ -601,6 +601,305 @@ DASHBOARD_HTML = r"""
   }
 </script>
 
+
+<!-- GO2_POSTURE_CONTROL_PANEL_V1 -->
+<style>
+  .go2-posture-panel {
+    margin: 20px 0;
+    padding: 16px;
+    border: 1px solid #d0d7de;
+    border-radius: 12px;
+    background: #fff8c5;
+  }
+
+  .go2-posture-panel h2 {
+    margin: 0 0 12px 0;
+    font-size: 20px;
+  }
+
+  .go2-posture-hint {
+    margin: 8px 0 14px 0;
+    color: #57606a;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  .go2-posture-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 120px);
+    gap: 10px;
+    align-items: center;
+  }
+
+  .go2-posture-btn {
+    height: 48px;
+    border: none;
+    border-radius: 10px;
+    background: #8250df;
+    color: white;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .go2-posture-btn:hover {
+    background: #6639ba;
+  }
+
+  .go2-posture-btn.safe {
+    background: #1a7f37;
+  }
+
+  .go2-posture-btn.safe:hover {
+    background: #116329;
+  }
+
+  .go2-posture-btn.warn {
+    background: #bf8700;
+  }
+
+  .go2-posture-btn.warn:hover {
+    background: #9a6700;
+  }
+
+  .go2-posture-btn.danger {
+    background: #cf222e;
+  }
+
+  .go2-posture-btn.danger:hover {
+    background: #a40e26;
+  }
+</style>
+
+<div class="go2-posture-panel">
+  <h2>GO2 姿态控制</h2>
+
+  <div class="go2-posture-hint">
+    当前区域用于第二批高层姿态动作。测试前请保证 GO2 周围空旷、地面平整，手边保留遥控器/急停方式。
+    建议顺序：站立 → 平衡站立 → 恢复站立 → 卧倒 → 站立 → 坐下 → 起坐。
+    阻尼保护 DAMP 请谨慎使用。
+  </div>
+
+  <div class="go2-posture-grid">
+    <button class="go2-posture-btn safe" onclick="sendGo2MotionCommand('STAND_UP')">站立</button>
+    <button class="go2-posture-btn safe" onclick="sendGo2MotionCommand('BALANCE_STAND')">平衡站立</button>
+    <button class="go2-posture-btn safe" onclick="sendGo2MotionCommand('RECOVERY_STAND')">恢复站立</button>
+    <button class="go2-posture-btn warn" onclick="sendGo2MotionCommand('STAND_DOWN')">卧倒</button>
+
+    <button class="go2-posture-btn" onclick="sendGo2MotionCommand('SIT')">坐下</button>
+    <button class="go2-posture-btn" onclick="sendGo2MotionCommand('RISE_SIT')">起坐</button>
+    <button class="go2-posture-btn danger" onclick="sendGo2MotionCommand('DAMP')">阻尼保护</button>
+    <button class="go2-posture-btn danger" onclick="sendGo2MotionCommand('EMERGENCY_STOP')">急停</button>
+  </div>
+</div>
+
+
+<!-- GO2_DASHBOARD_SAFETY_V1 -->
+<style>
+  .go2-command-log-panel {
+    margin: 20px 0;
+    padding: 16px;
+    border: 1px solid #d0d7de;
+    border-radius: 12px;
+    background: #ffffff;
+  }
+
+  .go2-command-log-panel h2 {
+    margin: 0 0 12px 0;
+    font-size: 20px;
+  }
+
+  .go2-command-log {
+    height: 180px;
+    overflow-y: auto;
+    padding: 10px;
+    border: 1px solid #d0d7de;
+    border-radius: 8px;
+    background: #f6f8fa;
+    font-family: monospace;
+    font-size: 13px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+  }
+
+  .go2-command-log-tip {
+    color: #57606a;
+    font-size: 14px;
+    margin-bottom: 10px;
+  }
+</style>
+
+<div class="go2-command-log-panel">
+  <h2>GO2 命令日志</h2>
+  <div class="go2-command-log-tip">
+    这里记录 Dashboard 发出的运动/姿态命令。急停不受防连点限制；危险姿态动作会二次确认。
+  </div>
+  <div id="go2CommandLog" class="go2-command-log">等待命令...</div>
+</div>
+
+<script>
+  let go2LastCommandTimeMs = 0;
+  const go2CommandCooldownMs = 900;
+
+  const go2DangerCommands = new Set([
+    "DAMP",
+    "STAND_DOWN",
+    "SIT"
+  ]);
+
+  const go2CommandNameMap = {
+    "MOVE_FORWARD": "前进",
+    "MOVE_BACKWARD": "后退",
+    "MOVE_LEFT": "左移",
+    "MOVE_RIGHT": "右移",
+    "TURN_LEFT": "左转",
+    "TURN_RIGHT": "右转",
+    "STOP_MOVE": "停止",
+    "EMERGENCY_STOP": "急停",
+    "STAND_DOWN": "卧倒",
+    "STAND_UP": "站立",
+    "BALANCE_STAND": "平衡站立",
+    "RECOVERY_STAND": "恢复站立",
+    "SIT": "坐下",
+    "RISE_SIT": "起坐",
+    "DAMP": "阻尼保护"
+  };
+
+  function go2NowText() {
+    const d = new Date();
+    return d.toLocaleTimeString();
+  }
+
+  function appendGo2CommandLog(text) {
+    const logEl = document.getElementById("go2CommandLog");
+    if (!logEl) {
+      return;
+    }
+
+    if (logEl.innerText === "等待命令...") {
+      logEl.innerText = "";
+    }
+
+    logEl.innerText += "[" + go2NowText() + "] " + text + "\n";
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  function setGo2ButtonsDisabled(disabled) {
+    const buttons = document.querySelectorAll("button[onclick*='sendGo2MotionCommand']");
+    buttons.forEach((btn) => {
+      const onclickText = btn.getAttribute("onclick") || "";
+      const isEmergency = onclickText.includes("EMERGENCY_STOP");
+
+      // 急停按钮永远不禁用
+      if (!isEmergency) {
+        btn.disabled = disabled;
+        btn.style.opacity = disabled ? "0.65" : "1.0";
+        btn.style.cursor = disabled ? "not-allowed" : "pointer";
+      }
+    });
+  }
+
+  async function sendGo2MotionCommand(command) {
+    const commandCn = go2CommandNameMap[command] || command;
+    const statusEl = document.getElementById("go2MotionStatus");
+    const robotIdInput = document.getElementById("go2RobotIdInput");
+
+    const robotId = robotIdInput && robotIdInput.value
+      ? robotIdInput.value.trim()
+      : "GO2_001";
+
+    if (!robotId) {
+      const msg = "Robot ID 为空，无法发送命令";
+      if (statusEl) {
+        statusEl.innerText = "运动控制状态：" + msg;
+      }
+      appendGo2CommandLog("发送失败：" + msg);
+      return;
+    }
+
+    // 急停不受防连点限制，其他命令限制连续点击
+    const nowMs = Date.now();
+    if (command !== "EMERGENCY_STOP" && nowMs - go2LastCommandTimeMs < go2CommandCooldownMs) {
+      const msg = "防连点生效，忽略过快命令：" + commandCn + " / " + command;
+      if (statusEl) {
+        statusEl.innerText = "运动控制状态：" + msg;
+      }
+      appendGo2CommandLog(msg);
+      return;
+    }
+
+    if (go2DangerCommands.has(command)) {
+      const ok = window.confirm(
+        "确认执行危险姿态动作？\n\n" +
+        "动作：" + commandCn + " / " + command + "\n\n" +
+        "请确认 GO2 周围空旷、地面平整，并且手边保留遥控器/急停方式。"
+      );
+
+      if (!ok) {
+        appendGo2CommandLog("已取消危险命令：" + commandCn + " / " + command);
+        return;
+      }
+    }
+
+    go2LastCommandTimeMs = nowMs;
+
+    if (statusEl) {
+      statusEl.innerText = "运动控制状态：正在发送 " + commandCn + " / " + command + " ...";
+    }
+    appendGo2CommandLog("发送命令：" + commandCn + " / " + command + "，robot_id=" + robotId);
+
+    if (command !== "EMERGENCY_STOP") {
+      setGo2ButtonsDisabled(true);
+    }
+
+    try {
+      const response = await fetch(
+        "/api/robot/" + encodeURIComponent(robotId) + "/command/" + encodeURIComponent(command),
+        { method: "POST" }
+      );
+
+      let responseText = "";
+      try {
+        responseText = await response.text();
+      } catch (e) {
+        responseText = "";
+      }
+
+      if (!response.ok) {
+        const msg = "发送失败：" + commandCn + " / " + command + "，HTTP " + response.status + "，" + responseText;
+        if (statusEl) {
+          statusEl.innerText = "运动控制状态：" + msg;
+        }
+        appendGo2CommandLog(msg);
+        console.error("GO2 command failed:", command, response.status, responseText);
+        return;
+      }
+
+      const okMsg = "已发送：" + commandCn + " / " + command;
+      if (statusEl) {
+        statusEl.innerText = "运动控制状态：" + okMsg;
+      }
+      appendGo2CommandLog(okMsg);
+      console.log("GO2 command sent:", command, responseText);
+    } catch (error) {
+      const msg = "发送异常：" + commandCn + " / " + command + "，" + error;
+      if (statusEl) {
+        statusEl.innerText = "运动控制状态：" + msg;
+      }
+      appendGo2CommandLog(msg);
+      console.error("GO2 command error:", command, error);
+    } finally {
+      if (command !== "EMERGENCY_STOP") {
+        setTimeout(() => {
+          setGo2ButtonsDisabled(false);
+        }, go2CommandCooldownMs);
+      }
+    }
+  }
+
+  appendGo2CommandLog("Dashboard 安全增强已启用：防连点、命令日志、危险动作确认。");
+</script>
+
 </body>
 </html>
 """
