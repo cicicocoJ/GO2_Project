@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>go2_command_control</name>
+  <version>0.1.0</version>
+  <description>Command handler for GO2 backend commands using Unitree sport API.</description>
+
+  <maintainer email="unitree@example.com">unitree</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>std_msgs</depend>
+  <depend>unitree_api</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
