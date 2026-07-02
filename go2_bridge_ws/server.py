@@ -456,6 +456,151 @@ DASHBOARD_HTML = r"""
     refreshStatus();
     setInterval(refreshStatus, 1000);
   </script>
+
+<!-- GO2_MOTION_CONTROL_PANEL_V1 -->
+<style>
+  .go2-motion-panel {
+    margin: 20px 0;
+    padding: 16px;
+    border: 1px solid #d0d7de;
+    border-radius: 12px;
+    background: #f6f8fa;
+  }
+
+  .go2-motion-panel h2 {
+    margin: 0 0 12px 0;
+    font-size: 20px;
+  }
+
+  .go2-motion-hint {
+    margin: 8px 0 14px 0;
+    color: #57606a;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  .go2-motion-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 110px);
+    grid-template-rows: repeat(4, 52px);
+    gap: 10px;
+    align-items: center;
+  }
+
+  .go2-motion-btn {
+    height: 48px;
+    border: none;
+    border-radius: 10px;
+    background: #0969da;
+    color: white;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .go2-motion-btn:hover {
+    background: #0550ae;
+  }
+
+  .go2-motion-btn.stop {
+    background: #6e7781;
+  }
+
+  .go2-motion-btn.stop:hover {
+    background: #57606a;
+  }
+
+  .go2-motion-btn.estop {
+    background: #cf222e;
+  }
+
+  .go2-motion-btn.estop:hover {
+    background: #a40e26;
+  }
+
+  .go2-motion-status {
+    margin-top: 12px;
+    font-size: 14px;
+    color: #24292f;
+  }
+</style>
+
+<div class="go2-motion-panel">
+  <h2>GO2 安全运动控制</h2>
+  <div class="go2-motion-hint">
+    当前模式：点击一次按钮，执行一小段动作，然后自动停止。测试前请保证 GO2 周围空旷，手边保留遥控器/急停方式。
+  </div>
+
+  <div style="margin-bottom: 12px;">
+    <label for="go2RobotIdInput">Robot ID：</label>
+    <input id="go2RobotIdInput" value="GO2_001" style="height: 30px; padding: 4px 8px; border-radius: 6px; border: 1px solid #d0d7de;">
+    <span style="font-size: 13px; color: #57606a;">如果按钮无效，把这里改成你后台实际的 robot_id。</span>
+  </div>
+
+  <div class="go2-motion-grid">
+    <div></div>
+    <button class="go2-motion-btn" onclick="sendGo2MotionCommand('MOVE_FORWARD')">前进</button>
+    <div></div>
+
+    <button class="go2-motion-btn" onclick="sendGo2MotionCommand('MOVE_LEFT')">左移</button>
+    <button class="go2-motion-btn stop" onclick="sendGo2MotionCommand('STOP_MOVE')">停止</button>
+    <button class="go2-motion-btn" onclick="sendGo2MotionCommand('MOVE_RIGHT')">右移</button>
+
+    <div></div>
+    <button class="go2-motion-btn" onclick="sendGo2MotionCommand('MOVE_BACKWARD')">后退</button>
+    <div></div>
+
+    <button class="go2-motion-btn" onclick="sendGo2MotionCommand('TURN_LEFT')">左转</button>
+    <button class="go2-motion-btn estop" onclick="sendGo2MotionCommand('EMERGENCY_STOP')">急停</button>
+    <button class="go2-motion-btn" onclick="sendGo2MotionCommand('TURN_RIGHT')">右转</button>
+  </div>
+
+  <div id="go2MotionStatus" class="go2-motion-status">运动控制状态：等待操作</div>
+</div>
+
+<script>
+  async function sendGo2MotionCommand(command) {
+    const statusEl = document.getElementById("go2MotionStatus");
+    const robotIdInput = document.getElementById("go2RobotIdInput");
+
+    const robotId = robotIdInput && robotIdInput.value
+      ? robotIdInput.value.trim()
+      : "GO2_001";
+
+    if (!robotId) {
+      statusEl.innerText = "运动控制状态：Robot ID 为空，无法发送命令";
+      return;
+    }
+
+    statusEl.innerText = "运动控制状态：正在发送 " + command + " ...";
+
+    try {
+      const response = await fetch("/api/robot/" + encodeURIComponent(robotId) + "/command/" + encodeURIComponent(command), {
+        method: "POST"
+      });
+
+      let responseText = "";
+      try {
+        responseText = await response.text();
+      } catch (e) {
+        responseText = "";
+      }
+
+      if (!response.ok) {
+        statusEl.innerText = "运动控制状态：发送失败 " + command + "，HTTP " + response.status + "，" + responseText;
+        console.error("GO2 command failed:", command, response.status, responseText);
+        return;
+      }
+
+      statusEl.innerText = "运动控制状态：已发送 " + command;
+      console.log("GO2 command sent:", command, responseText);
+    } catch (error) {
+      statusEl.innerText = "运动控制状态：发送异常 " + command + "，" + error;
+      console.error("GO2 command error:", command, error);
+    }
+  }
+</script>
+
 </body>
 </html>
 """

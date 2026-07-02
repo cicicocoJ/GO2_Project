@@ -1,13 +1,15 @@
 #include <chrono>
 #include <cmath>
+#include <cstdint>
+#include <mutex>
 #include <regex>
 #include <string>
+#include <thread>
 
 #include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/string.hpp"
-#include "unitree_api/msg/request.hpp"
-#include "unitree_api/msg/response.hpp"
 
+#include "unitree_api/msg/request.hpp"
 #include "common/ros2_sport_client.h"
 
 using namespace std::chrono_literals;
@@ -19,263 +21,313 @@ public:
   : Node("backend_command_handler_node"),
     sport_client_(this)
   {
-    // ============================================================
-    // 1. 参数
-    // ============================================================
-
-    this->declare_parameter<std::string>("backend_command_topic", "/backend_command");
-    this->declare_parameter<std::string>("sport_request_topic", "/api/sport/request");
-    this->declare_parameter<std::string>("sport_response_topic", "/api/sport/response");
-
-    // 默认前进速度。第一版必须低速。
-    this->declare_parameter<double>("forward_speed", 0.15);
-
-    // START_TASK / RESUME_TASK 默认持续时间，单位秒。
-    this->declare_parameter<double>("forward_duration_sec", 1.0);
-
-    // 控制请求重复发布周期。
+    this->declare_parameter<double>("linear_speed_x", 0.30);
+    this->declare_parameter<double>("linear_speed_y", 0.20);
+    this->declare_parameter<double>("yaw_speed", 0.50);
+    this->declare_parameter<double>("move_duration_sec", 1.0);
     this->declare_parameter<double>("control_period_sec", 0.1);
 
-    backend_command_topic_ = this->get_parameter("backend_command_topic").as_string();
-    sport_request_topic_ = this->get_parameter("sport_request_topic").as_string();
-    sport_response_topic_ = this->get_parameter("sport_response_topic").as_string();
+    // Safety limits. Conservative values for first-batch testing.
+    this->declare_parameter<double>("max_linear_speed_x", 0.40);
+    this->declare_parameter<double>("max_linear_speed_y", 0.30);
+    this->declare_parameter<double>("max_yaw_speed", 0.80);
+    this->declare_parameter<double>("max_move_duration_sec", 2.0);
+    this->declare_parameter<int>("emergency_stop_repeat", 3);
 
-    forward_speed_ = this->get_parameter("forward_speed").as_double();
-    forward_duration_sec_ = this->get_parameter("forward_duration_sec").as_double();
+    linear_speed_x_ = this->get_parameter("linear_speed_x").as_double();
+    linear_speed_y_ = this->get_parameter("linear_speed_y").as_double();
+    yaw_speed_ = this->get_parameter("yaw_speed").as_double();
+    move_duration_sec_ = this->get_parameter("move_duration_sec").as_double();
     control_period_sec_ = this->get_parameter("control_period_sec").as_double();
 
-    // ============================================================
-    // 2. ROS2 发布与订阅
-    // ============================================================
+    max_linear_speed_x_ = this->get_parameter("max_linear_speed_x").as_double();
+    max_linear_speed_y_ = this->get_parameter("max_linear_speed_y").as_double();
+    max_yaw_speed_ = this->get_parameter("max_yaw_speed").as_double();
+    max_move_duration_sec_ = this->get_parameter("max_move_duration_sec").as_double();
+    emergency_stop_repeat_ = this->get_parameter("emergency_stop_repeat").as_int();
+
+    linear_speed_x_ = clampAbs(linear_speed_x_, max_linear_speed_x_);
+    linear_speed_y_ = clampAbs(linear_speed_y_, max_linear_speed_y_);
+    yaw_speed_ = clampAbs(yaw_speed_, max_yaw_speed_);
+    move_duration_sec_ = clampRange(move_duration_sec_, 0.1, max_move_duration_sec_);
+    control_period_sec_ = clampRange(control_period_sec_, 0.05, 1.0);
 
     command_sub_ = this->create_subscription<std_msgs::msg::String>(
-      backend_command_topic_,
+      "/backend_command",
       10,
-      std::bind(&BackendCommandHandlerNode::backendCommandCallback, this, std::placeholders::_1)
+      std::bind(&BackendCommandHandlerNode::onCommand, this, std::placeholders::_1)
     );
 
-    sport_request_pub_ = this->create_publisher<unitree_api::msg::Request>(
-      sport_request_topic_,
-      10
+    auto timer_period = std::chrono::duration<double>(control_period_sec_);
+    control_timer_ = this->create_wall_timer(
+      std::chrono::duration_cast<std::chrono::milliseconds>(timer_period),
+      std::bind(&BackendCommandHandlerNode::onControlTimer, this)
     );
 
-    sport_response_sub_ = this->create_subscription<unitree_api::msg::Response>(
-      sport_response_topic_,
-      10,
-      std::bind(&BackendCommandHandlerNode::sportResponseCallback, this, std::placeholders::_1)
-    );
+    {
+      std::lock_guard<std::mutex> lock(motion_mutex_);
+      clearMotionStateUnsafe();
+      sendStopUnsafe();
+    }
 
-    timer_ = this->create_wall_timer(
-      std::chrono::duration<double>(control_period_sec_),
-      std::bind(&BackendCommandHandlerNode::controlTimerCallback, this)
+    RCLCPP_INFO(this->get_logger(), "backend_command_handler_node started.");
+    RCLCPP_INFO(this->get_logger(), "Commands:");
+    RCLCPP_INFO(this->get_logger(), "  MOVE_FORWARD, MOVE_BACKWARD, MOVE_LEFT, MOVE_RIGHT");
+    RCLCPP_INFO(this->get_logger(), "  TURN_LEFT, TURN_RIGHT, STOP_MOVE, EMERGENCY_STOP");
+    RCLCPP_INFO(this->get_logger(), "Compatible:");
+    RCLCPP_INFO(this->get_logger(), "  START_TASK -> MOVE_FORWARD");
+    RCLCPP_INFO(this->get_logger(), "  STOP_TASK / PAUSE_TASK -> STOP_MOVE");
+    RCLCPP_INFO(
+      this->get_logger(),
+      "Params: linear_speed_x=%.3f, linear_speed_y=%.3f, yaw_speed=%.3f, move_duration_sec=%.3f, control_period_sec=%.3f",
+      linear_speed_x_, linear_speed_y_, yaw_speed_, move_duration_sec_, control_period_sec_
     );
+  }
 
-    RCLCPP_INFO(this->get_logger(), "backend_command_handler_node initialized");
-    RCLCPP_INFO(this->get_logger(), "backend_command_topic: %s", backend_command_topic_.c_str());
-    RCLCPP_INFO(this->get_logger(), "sport_request_topic: %s", sport_request_topic_.c_str());
-    RCLCPP_INFO(this->get_logger(), "sport_response_topic: %s", sport_response_topic_.c_str());
-    RCLCPP_INFO(this->get_logger(), "forward_speed: %.3f m/s", forward_speed_);
-    RCLCPP_INFO(this->get_logger(), "forward_duration_sec: %.3f s", forward_duration_sec_);
+  ~BackendCommandHandlerNode()
+  {
+    std::lock_guard<std::mutex> lock(motion_mutex_);
+    clearMotionStateUnsafe();
+    sendStopUnsafe();
   }
 
 private:
-  // ============================================================
-  // JSON 简单解析
-  // ============================================================
-
-  std::string extractStringField(const std::string & json_text, const std::string & key)
+  static double clampAbs(double value, double max_abs)
   {
-    // 简单提取形如：
-    //   "command": "PAUSE_TASK"
-    // 的字符串字段。
-    //
-    // 第一版只解析 backend_client_node 发来的固定 JSON 格式。
-    const std::string pattern =
-      "\"" + key + "\"\\s*:\\s*\"([^\"]*)\"";
+    if (max_abs <= 0.0) {
+      return 0.0;
+    }
 
-    std::regex re(pattern);
+    if (value > max_abs) {
+      return max_abs;
+    }
+
+    if (value < -max_abs) {
+      return -max_abs;
+    }
+
+    return value;
+  }
+
+  static double clampRange(double value, double min_value, double max_value)
+  {
+    if (value < min_value) {
+      return min_value;
+    }
+
+    if (value > max_value) {
+      return max_value;
+    }
+
+    return value;
+  }
+
+  static rclcpp::Duration secondsToDuration(double seconds)
+  {
+    if (seconds < 0.0) {
+      seconds = 0.0;
+    }
+
+    const int32_t sec = static_cast<int32_t>(std::floor(seconds));
+    const uint32_t nanosec = static_cast<uint32_t>((seconds - static_cast<double>(sec)) * 1e9);
+    return rclcpp::Duration(sec, nanosec);
+  }
+
+  static std::string trim(const std::string & input)
+  {
+    const auto begin = input.find_first_not_of(" \t\r\n\"");
+    if (begin == std::string::npos) {
+      return "";
+    }
+
+    const auto end = input.find_last_not_of(" \t\r\n\"");
+    return input.substr(begin, end - begin + 1);
+  }
+
+  std::string extractCommand(const std::string & payload)
+  {
+    // Expected bridge format:
+    // {"command":"MOVE_FORWARD","command_id":"xxx"}
+    std::regex command_regex("\"command\"\\s*:\\s*\"([^\"]+)\"");
     std::smatch match;
 
-    if (std::regex_search(json_text, match, re) && match.size() >= 2) {
-      return match[1].str();
+    if (std::regex_search(payload, match, command_regex) && match.size() >= 2) {
+      return trim(match[1].str());
     }
 
-    return "";
+    // Also support directly publishing a plain string:
+    // MOVE_FORWARD
+    return trim(payload);
   }
 
-  // ============================================================
-  // Backend command 回调
-  // ============================================================
-
-  void backendCommandCallback(const std_msgs::msg::String::SharedPtr msg)
+  std::string normalizeCommand(const std::string & command)
   {
-    const std::string raw = msg->data;
+    if (command == "START_TASK") {
+      return "MOVE_FORWARD";
+    }
 
-    const std::string command = extractStringField(raw, "command");
-    const std::string command_id = extractStringField(raw, "command_id");
+    if (command == "STOP_TASK" || command == "PAUSE_TASK") {
+      return "STOP_MOVE";
+    }
+
+    return command;
+  }
+
+  void onCommand(const std_msgs::msg::String::SharedPtr msg)
+  {
+    const std::string raw_command = extractCommand(msg->data);
+    const std::string command = normalizeCommand(raw_command);
 
     if (command.empty()) {
-      RCLCPP_WARN(this->get_logger(), "Received /backend_command without command field: %s", raw.c_str());
+      RCLCPP_WARN(this->get_logger(), "Received empty backend command. Raw payload: %s", msg->data.c_str());
       return;
     }
+
+    RCLCPP_INFO(this->get_logger(), "Received backend command: raw='%s', normalized='%s'",
+                raw_command.c_str(), command.c_str());
+
+    if (command == "MOVE_FORWARD") {
+      startTimedMove(+linear_speed_x_, 0.0, 0.0, "MOVE_FORWARD");
+    } else if (command == "MOVE_BACKWARD") {
+      startTimedMove(-linear_speed_x_, 0.0, 0.0, "MOVE_BACKWARD");
+    } else if (command == "MOVE_LEFT") {
+      startTimedMove(0.0, +linear_speed_y_, 0.0, "MOVE_LEFT");
+    } else if (command == "MOVE_RIGHT") {
+      startTimedMove(0.0, -linear_speed_y_, 0.0, "MOVE_RIGHT");
+    } else if (command == "TURN_LEFT") {
+      startTimedMove(0.0, 0.0, +yaw_speed_, "TURN_LEFT");
+    } else if (command == "TURN_RIGHT") {
+      startTimedMove(0.0, 0.0, -yaw_speed_, "TURN_RIGHT");
+    } else if (command == "STOP_MOVE") {
+      stopMove("STOP_MOVE");
+    } else if (command == "EMERGENCY_STOP") {
+      emergencyStop();
+    } else {
+      RCLCPP_WARN(this->get_logger(), "Unknown command: %s. Raw payload: %s",
+                  command.c_str(), msg->data.c_str());
+    }
+  }
+
+  void startTimedMove(double vx, double vy, double vyaw, const std::string & command_name)
+  {
+    std::lock_guard<std::mutex> lock(motion_mutex_);
+
+    vx = clampAbs(vx, max_linear_speed_x_);
+    vy = clampAbs(vy, max_linear_speed_y_);
+    vyaw = clampAbs(vyaw, max_yaw_speed_);
+
+    current_vx_ = vx;
+    current_vy_ = vy;
+    current_vyaw_ = vyaw;
+    active_motion_ = true;
+    motion_end_time_ = this->now() + secondsToDuration(move_duration_sec_);
 
     RCLCPP_INFO(
       this->get_logger(),
-      "Received backend command: command=%s, command_id=%s",
-      command.c_str(),
-      command_id.c_str()
+      "Start timed move: %s, vx=%.3f, vy=%.3f, vyaw=%.3f, duration=%.3f sec",
+      command_name.c_str(), current_vx_, current_vy_, current_vyaw_, move_duration_sec_
     );
 
-    if (command == "PING") {
-      RCLCPP_INFO(this->get_logger(), "PING received. No GO2 motion command will be sent.");
-      return;
-    }
-
-    if (command == "PAUSE_TASK") {
-      active_forward_ = false;
-      publishStopMove("PAUSE_TASK");
-      return;
-    }
-
-    if (command == "STOP_TASK") {
-      active_forward_ = false;
-      publishStopMove("STOP_TASK");
-      return;
-    }
-
-    if (command == "EMERGENCY_STOP") {
-      active_forward_ = false;
-
-      // 急停命令连续发送 3 次，增加可靠性。
-      publishStopMove("EMERGENCY_STOP");
-      publishStopMove("EMERGENCY_STOP");
-      publishStopMove("EMERGENCY_STOP");
-      return;
-    }
-
-    if (command == "START_TASK" || command == "RESUME_TASK") {
-      startForwardMotion(command);
-      return;
-    }
-
-    RCLCPP_WARN(
-      this->get_logger(),
-      "Unsupported command: %s. StopMove will be sent for safety.",
-      command.c_str()
-    );
-
-    active_forward_ = false;
-    publishStopMove("UNSUPPORTED_COMMAND");
+    sendMoveUnsafe(current_vx_, current_vy_, current_vyaw_);
   }
 
-  // ============================================================
-  // Unitree Sport API 请求发布
-  // ============================================================
-
-  void publishStopMove(const std::string & reason)
+  void stopMove(const std::string & reason)
   {
-    unitree_api::msg::Request req;
-    sport_client_.StopMove(req);
-    sport_request_pub_->publish(req);
+    std::lock_guard<std::mutex> lock(motion_mutex_);
 
-    RCLCPP_WARN(
-      this->get_logger(),
-      "Published StopMove. reason=%s",
-      reason.c_str()
-    );
+    clearMotionStateUnsafe();
+    sendStopUnsafe();
+
+    RCLCPP_WARN(this->get_logger(), "StopMove called. reason=%s", reason.c_str());
   }
 
-  void publishMoveForward()
+  void emergencyStop()
   {
-    unitree_api::msg::Request req;
+    std::lock_guard<std::mutex> lock(motion_mutex_);
 
-    // vx > 0 表示前进。
-    // vy = 0 不侧移。
-    // vyaw = 0 不旋转。
-    sport_client_.Move(
-      req,
-      static_cast<float>(forward_speed_),
-      0.0f,
-      0.0f
-    );
+    clearMotionStateUnsafe();
 
-    sport_request_pub_->publish(req);
+    RCLCPP_ERROR(this->get_logger(), "EMERGENCY_STOP received. Sending StopMove repeatedly.");
 
-    RCLCPP_INFO(
-      this->get_logger(),
-      "Published Move forward: vx=%.3f, vy=0.000, vyaw=0.000",
-      forward_speed_
-    );
+    int repeat = emergency_stop_repeat_;
+    if (repeat < 1) {
+      repeat = 1;
+    }
+    if (repeat > 10) {
+      repeat = 10;
+    }
+
+    for (int i = 0; i < repeat; ++i) {
+      sendStopUnsafe();
+      std::this_thread::sleep_for(60ms);
+    }
+
+    RCLCPP_ERROR(this->get_logger(), "Emergency stop finished. Motion state cleared.");
   }
 
-  void startForwardMotion(const std::string & reason)
+  void onControlTimer()
   {
-    active_forward_ = true;
-    forward_end_time_ = this->now() + rclcpp::Duration::from_seconds(forward_duration_sec_);
+    std::lock_guard<std::mutex> lock(motion_mutex_);
 
-    RCLCPP_WARN(
-      this->get_logger(),
-      "Start low-speed forward motion. reason=%s, speed=%.3f m/s, duration=%.3f s",
-      reason.c_str(),
-      forward_speed_,
-      forward_duration_sec_
-    );
-
-    publishMoveForward();
-  }
-
-  // ============================================================
-  // 定时器：持续发送低速前进命令，到时间后自动停止
-  // ============================================================
-
-  void controlTimerCallback()
-  {
-    if (!active_forward_) {
+    if (!active_motion_) {
       return;
     }
 
-    const rclcpp::Time now = this->now();
-
-    if (now < forward_end_time_) {
-      publishMoveForward();
+    if (this->now() >= motion_end_time_) {
+      clearMotionStateUnsafe();
+      sendStopUnsafe();
+      RCLCPP_INFO(this->get_logger(), "Timed move finished. Auto StopMove sent.");
       return;
     }
 
-    active_forward_ = false;
-    publishStopMove("AUTO_STOP_AFTER_DURATION");
+    sendMoveUnsafe(current_vx_, current_vy_, current_vyaw_);
   }
 
-  // ============================================================
-  // sport response 回调
-  // ============================================================
-
-  void sportResponseCallback(const unitree_api::msg::Response::SharedPtr msg)
+  void clearMotionStateUnsafe()
   {
-    (void)msg;
+    active_motion_ = false;
+    current_vx_ = 0.0;
+    current_vy_ = 0.0;
+    current_vyaw_ = 0.0;
+    motion_end_time_ = this->now();
+  }
 
-    // 第一版不解析 Response 具体字段，只确认收到了响应。
-    // 如果后续需要更详细的执行反馈，再根据 unitree_api/msg/Response 字段补充。
-    RCLCPP_DEBUG(this->get_logger(), "Received sport response.");
+  void sendMoveUnsafe(double vx, double vy, double vyaw)
+  {
+    sport_client_.Move(req_, vx, vy, vyaw);
+  }
+
+  void sendStopUnsafe()
+  {
+    sport_client_.StopMove(req_);
   }
 
 private:
   SportClient sport_client_;
-
-  std::string backend_command_topic_;
-  std::string sport_request_topic_;
-  std::string sport_response_topic_;
-
-  double forward_speed_{0.15};
-  double forward_duration_sec_{1.0};
-  double control_period_sec_{0.1};
-
-  bool active_forward_{false};
-  rclcpp::Time forward_end_time_;
+  unitree_api::msg::Request req_;
 
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr command_sub_;
-  rclcpp::Publisher<unitree_api::msg::Request>::SharedPtr sport_request_pub_;
-  rclcpp::Subscription<unitree_api::msg::Response>::SharedPtr sport_response_sub_;
-  rclcpp::TimerBase::SharedPtr timer_;
+  rclcpp::TimerBase::SharedPtr control_timer_;
+
+  std::mutex motion_mutex_;
+
+  bool active_motion_{false};
+  double current_vx_{0.0};
+  double current_vy_{0.0};
+  double current_vyaw_{0.0};
+  rclcpp::Time motion_end_time_{0, 0, RCL_ROS_TIME};
+
+  double linear_speed_x_{0.30};
+  double linear_speed_y_{0.20};
+  double yaw_speed_{0.50};
+  double move_duration_sec_{1.0};
+  double control_period_sec_{0.1};
+
+  double max_linear_speed_x_{0.40};
+  double max_linear_speed_y_{0.30};
+  double max_yaw_speed_{0.80};
+  double max_move_duration_sec_{2.0};
+  int emergency_stop_repeat_{3};
 };
 
 int main(int argc, char ** argv)
@@ -283,10 +335,8 @@ int main(int argc, char ** argv)
   rclcpp::init(argc, argv);
 
   auto node = std::make_shared<BackendCommandHandlerNode>();
-
   rclcpp::spin(node);
 
   rclcpp::shutdown();
-
   return 0;
 }
