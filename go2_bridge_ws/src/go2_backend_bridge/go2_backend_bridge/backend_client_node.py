@@ -25,6 +25,7 @@ GO2 巡检机器人项目的机器人端后台中转节点。
 
 import asyncio
 import json
+import os
 import threading
 import time
 import uuid
@@ -72,9 +73,14 @@ class BackendClientNode(Node):
 
         self.declare_parameter('robot_id', 'GO2_001')
 
+        default_server_url = os.environ.get(
+            'GO2_BACKEND_SERVER_URL',
+            'ws://127.0.0.1:8000/ws/robot/GO2_001'
+        )
+
         self.declare_parameter(
             'server_url',
-            'ws://127.0.0.1:8000/ws/robot/GO2_001'
+            default_server_url
         )
 
         self.declare_parameter('upload_period_sec', 1.0)
