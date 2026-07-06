@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+WS="$HOME/GO2_Project/go2_bridge_ws"
+PID_DIR="$WS/logs/pids"
+
+JETSON_USER="${JETSON_USER:-unitree}"
+JETSON_IP="${JETSON_IP:-192.168.123.18}"
+
+echo "============================================================"
+echo " GO2 Full System Stop"
+echo "============================================================"
+
+echo "[STOP] Jetson robot side"
+ssh "$JETSON_USER@$JETSON_IP" "bash /home/unitree/go2_bridge_ws/scripts/stop_robot_side.sh" || true
+
+echo "[STOP] local backend"
+
+if [ -f "$PID_DIR/backend_server.pid" ]; then
+  pid="$(cat "$PID_DIR/backend_server.pid" || true)"
+
+  if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+    echo "[STOP] backend_server pid=$pid"
+    kill "$pid" 2>/dev/null || true
+    sleep 0.5
+
+    if kill -0 "$pid" 2>/dev/null; then
+      echo "[KILL] backend_server pid=$pid"
+      kill -9 "$pid" 2>/dev/null || true
+    fi
+  fi
+
+  rm -f "$PID_DIR/backend_server.pid"
+fi
+
+if command -v fuser >/dev/null 2>&1; then
+  fuser -k 8000/tcp >/dev/null 2>&1 || true
+fi
+
+echo "[OK] GO2 full system stopped."

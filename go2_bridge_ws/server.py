@@ -90,15 +90,30 @@ DASHBOARD_HTML = r"""
   <meta charset="UTF-8" />
   <title>GO2 Backend Dashboard</title>
   <style>
+    :root {
+      --bg: #f4f6f8;
+      --card: #ffffff;
+      --text: #1f2937;
+      --muted: #6b7280;
+      --dark: #111827;
+      --blue: #2563eb;
+      --blue-hover: #1d4ed8;
+      --green: #059669;
+      --orange: #f59e0b;
+      --red: #dc2626;
+      --gray: #4b5563;
+      --border: #d1d5db;
+    }
+
     body {
       margin: 0;
       font-family: Arial, "Microsoft YaHei", sans-serif;
-      background: #f4f6f8;
-      color: #1f2937;
+      background: var(--bg);
+      color: var(--text);
     }
 
     header {
-      background: #111827;
+      background: var(--dark);
       color: white;
       padding: 18px 28px;
     }
@@ -115,29 +130,30 @@ DASHBOARD_HTML = r"""
     }
 
     main {
-      padding: 24px;
-      max-width: 1200px;
+      padding: 20px 24px 28px;
+      max-width: 1380px;
       margin: 0 auto;
     }
 
     .row {
       display: flex;
-      gap: 16px;
+      gap: 14px;
       flex-wrap: wrap;
-      margin-bottom: 16px;
+      margin-bottom: 14px;
     }
 
     .card {
-      background: white;
+      background: var(--card);
       border-radius: 12px;
-      padding: 18px;
+      padding: 16px;
       box-shadow: 0 2px 8px rgba(0,0,0,0.06);
       flex: 1;
-      min-width: 220px;
+      min-width: 180px;
+      box-sizing: border-box;
     }
 
     .card h2 {
-      margin: 0 0 12px;
+      margin: 0 0 10px;
       font-size: 17px;
       color: #111827;
     }
@@ -150,7 +166,7 @@ DASHBOARD_HTML = r"""
 
     .label {
       font-size: 13px;
-      color: #6b7280;
+      color: var(--muted);
     }
 
     .status-online {
@@ -158,13 +174,22 @@ DASHBOARD_HTML = r"""
     }
 
     .status-offline {
-      color: #dc2626;
+      color: var(--red);
     }
 
-    .button-row {
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
+    .small {
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+
+    input {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 9px 11px;
+      font-size: 14px;
+      min-width: 160px;
+      box-sizing: border-box;
     }
 
     button {
@@ -173,44 +198,139 @@ DASHBOARD_HTML = r"""
       padding: 10px 14px;
       cursor: pointer;
       font-size: 14px;
-      background: #2563eb;
+      font-weight: 700;
+      background: var(--blue);
       color: white;
     }
 
     button:hover {
-      background: #1d4ed8;
+      background: var(--blue-hover);
     }
 
-    button.secondary {
-      background: #4b5563;
+    button:disabled {
+      opacity: 0.65;
+      cursor: not-allowed;
     }
 
-    button.secondary:hover {
-      background: #374151;
+    button.secondary { background: var(--gray); }
+    button.secondary:hover { background: #374151; }
+    button.warning { background: var(--orange); }
+    button.warning:hover { background: #d97706; }
+    button.danger { background: var(--red); }
+    button.danger:hover { background: #b91c1c; }
+    button.green { background: var(--green); }
+    button.green:hover { background: #047857; }
+
+    .teleop-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 340px;
+      gap: 16px;
+      align-items: start;
+      margin: 14px 0;
     }
 
-    button.warning {
-      background: #f59e0b;
+    .video-card,
+    .control-card {
+      background: var(--card);
+      border-radius: 14px;
+      padding: 16px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+      box-sizing: border-box;
     }
 
-    button.warning:hover {
+    .video-card {
+      min-width: 0;
+    }
+
+    .video-card h2,
+    .control-card h2 {
+      margin: 0 0 12px;
+      font-size: 18px;
+    }
+
+    .camera-stream {
+      display: block;
+      width: 100%;
+      max-width: 860px;
+      height: auto;
+      aspect-ratio: 4 / 3;
+      object-fit: contain;
+      background: #000;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+    }
+
+    .control-card {
+      position: sticky;
+      top: 12px;
+    }
+
+    .control-section-title {
+      font-weight: 700;
+      margin: 12px 0 8px;
+      color: #374151;
+    }
+
+    .move-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .turn-row,
+    .pose-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .single-row {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .ctrl-btn {
+      min-height: 44px;
+    }
+
+    .ctrl-btn.stop {
+      background: var(--orange);
+    }
+
+    .ctrl-btn.stop:hover {
       background: #d97706;
     }
 
-    button.danger {
-      background: #dc2626;
+    .ctrl-btn.emergency {
+      background: var(--red);
+      min-height: 52px;
+      font-size: 18px;
     }
 
-    button.danger:hover {
+    .ctrl-btn.emergency:hover {
       background: #b91c1c;
     }
 
-    input {
-      border: 1px solid #d1d5db;
+    .motion-status {
+      margin-top: 10px;
+      padding: 10px;
       border-radius: 8px;
-      padding: 10px 12px;
-      font-size: 14px;
-      min-width: 180px;
+      background: #f6f8fa;
+      border: 1px solid var(--border);
+      font-size: 13px;
+      line-height: 1.45;
+      color: #374151;
+    }
+
+    .grid-two {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-top: 14px;
     }
 
     pre {
@@ -219,9 +339,10 @@ DASHBOARD_HTML = r"""
       border-radius: 12px;
       padding: 16px;
       overflow-x: auto;
-      max-height: 460px;
+      max-height: 360px;
       font-size: 13px;
       line-height: 1.5;
+      margin: 0;
     }
 
     .log {
@@ -229,26 +350,29 @@ DASHBOARD_HTML = r"""
       color: #e5e7eb;
       border-radius: 12px;
       padding: 12px;
-      height: 150px;
+      height: 180px;
       overflow-y: auto;
       font-size: 13px;
+      line-height: 1.5;
     }
 
-    .small {
-      font-size: 13px;
-      color: #6b7280;
-    }
+    @media (max-width: 1100px) {
+      .teleop-layout {
+        grid-template-columns: 1fr;
+      }
 
-    .grid-two {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 16px;
+      .control-card {
+        position: static;
+      }
+
+      .camera-stream {
+        max-width: 100%;
+      }
     }
 
     @media (max-width: 800px) {
-      .grid-two {
-        grid-template-columns: 1fr;
-      }
+      main { padding: 16px; }
+      .grid-two { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -306,19 +430,62 @@ DASHBOARD_HTML = r"""
       </div>
     </div>
 
-    <div class="card">
-      <h2>命令控制</h2>
-      <div class="button-row">
-        <button class="secondary" onclick="sendCommand('PING')">PING</button>
-        <button onclick="sendCommand('START_TASK')">START_TASK</button>
-        <button class="warning" onclick="sendCommand('PAUSE_TASK')">PAUSE_TASK</button>
-        <button onclick="sendCommand('RESUME_TASK')">RESUME_TASK</button>
-        <button class="warning" onclick="sendCommand('STOP_TASK')">STOP_TASK</button>
-        <button class="danger" onclick="sendCommand('EMERGENCY_STOP')">EMERGENCY_STOP</button>
+    <div class="teleop-layout">
+      <div class="video-card">
+        <h2>实时画面 / D435i RGB</h2>
+        <img
+          class="camera-stream"
+          src="http://192.168.123.18:8081/video_feed"
+          alt="D435i Live Stream"
+        />
       </div>
-      <p class="small">
-        当前按钮只调用后台 command 接口。真正运动控制由 Jetson 后续的 command handler 节点决定。
-      </p>
+
+      <div class="control-card">
+        <h2>常用控制</h2>
+
+        <div class="control-section-title">移动控制</div>
+        <div class="move-grid">
+          <div></div>
+          <button class="ctrl-btn" onclick="handleGo2MoveClick('MOVE_FORWARD')">前进</button>
+          <div></div>
+
+          <button class="ctrl-btn" onclick="handleGo2MoveClick('MOVE_LEFT')">左移</button>
+          <button class="ctrl-btn stop" onclick="sendGo2MotionCommand('STOP_MOVE')">停止</button>
+          <button class="ctrl-btn" onclick="handleGo2MoveClick('MOVE_RIGHT')">右移</button>
+
+          <div></div>
+          <button class="ctrl-btn" onclick="handleGo2MoveClick('MOVE_BACKWARD')">后退</button>
+          <div></div>
+        </div>
+
+        <div class="turn-row">
+          <button class="ctrl-btn" onclick="sendGo2MotionCommand('TURN_LEFT')">左转</button>
+          <button class="ctrl-btn" onclick="sendGo2MotionCommand('TURN_RIGHT')">右转</button>
+        </div>
+
+        <div class="control-section-title">姿态控制</div>
+        <div class="pose-row">
+          <button class="ctrl-btn green" onclick="sendGo2MotionCommand('STAND_UP')">站立</button>
+          <button class="ctrl-btn warning" onclick="sendGo2MotionCommand('STAND_DOWN')">卧倒</button>
+        </div>
+
+        <div class="pose-row">
+          <button class="ctrl-btn green" onclick="sendGo2MotionCommand('BALANCE_STAND')">平衡站立</button>
+          <button class="ctrl-btn green" onclick="sendGo2MotionCommand('RECOVERY_STAND')">恢复站立</button>
+        </div>
+
+        <div class="control-section-title">巡检采集</div>
+        <div class="single-row">
+          <button class="ctrl-btn green" onclick="sendGo2MotionCommand('CAPTURE_IMAGE')">📷 拍照</button>
+        </div>
+
+        <div class="control-section-title">安全</div>
+        <div class="single-row">
+          <button class="ctrl-btn emergency" onclick="sendGo2MotionCommand('EMERGENCY_STOP')">急停</button>
+        </div>
+
+        <div id="go2MotionStatus" class="motion-status">运动控制状态：等待操作</div>
+      </div>
     </div>
 
     <div class="grid-two">
@@ -335,8 +502,94 @@ DASHBOARD_HTML = r"""
   </main>
 
   <script>
+    let go2LastCommandTimeMs = 0;
+    const go2CommandCooldownMs = 900;
+
+    const go2DangerCommands = new Set([
+      "DAMP",
+      "STAND_DOWN",
+      "SIT"
+    ]);
+
+    const go2CommandNameMap = {
+      "MOVE_FORWARD": "前进",
+      "MOVE_BACKWARD": "后退",
+      "MOVE_LEFT": "左移",
+      "MOVE_RIGHT": "右移",
+      "TURN_LEFT": "左转",
+      "TURN_RIGHT": "右转",
+      "STOP_MOVE": "停止",
+      "EMERGENCY_STOP": "急停",
+      "STAND_DOWN": "卧倒",
+      "STAND_UP": "站立",
+      "BALANCE_STAND": "平衡站立",
+      "RECOVERY_STAND": "恢复站立",
+      "SIT": "坐下",
+      "RISE_SIT": "起坐",
+      "DAMP": "阻尼保护",
+      "CAPTURE_IMAGE": "拍照",
+      "MOVE_FORWARD_CONTINUOUS": "连续前进",
+      "MOVE_BACKWARD_CONTINUOUS": "连续后退",
+      "MOVE_LEFT_CONTINUOUS": "连续左移",
+      "MOVE_RIGHT_CONTINUOUS": "连续右移"
+    };
+
     function getRobotId() {
       return document.getElementById('robotIdInput').value.trim() || 'GO2_001';
+    }
+
+    // GO2_DOUBLE_CLICK_CONTINUOUS_V2
+    // 单击：普通短动作；双击：连续运动，直到点击停止/急停。
+    const go2DoubleClickWindowMs = 350;
+
+    const go2ContinuousMoveMap = {
+      "MOVE_FORWARD": "MOVE_FORWARD_CONTINUOUS",
+      "MOVE_BACKWARD": "MOVE_BACKWARD_CONTINUOUS",
+      "MOVE_LEFT": "MOVE_LEFT_CONTINUOUS",
+      "MOVE_RIGHT": "MOVE_RIGHT_CONTINUOUS"
+    };
+
+    let go2MoveClickTimer = null;
+    let go2LastMoveClickCommand = null;
+    let go2LastMoveClickTimeMs = 0;
+
+    function handleGo2MoveClick(command) {
+      const nowMs = Date.now();
+
+      // 第二次点击：如果还是同一个方向，并且间隔足够短，就认为是双击
+      if (
+        go2MoveClickTimer &&
+        go2LastMoveClickCommand === command &&
+        nowMs - go2LastMoveClickTimeMs <= go2DoubleClickWindowMs
+      ) {
+        clearTimeout(go2MoveClickTimer);
+        go2MoveClickTimer = null;
+
+        const continuousCommand = go2ContinuousMoveMap[command];
+        const commandCn = go2CommandNameMap[command] || command;
+        const continuousCn = go2CommandNameMap[continuousCommand] || continuousCommand;
+
+        log("检测到双击：" + commandCn + "，切换为 " + continuousCn + "，直到点击停止。");
+
+        // 双击连续运动必须绕过防连点，否则会被第一下点击时间挡住
+        sendGo2MotionCommand(continuousCommand, { bypassCooldown: true });
+        return;
+      }
+
+      // 如果点了另一个方向，取消上一个等待中的单击
+      if (go2MoveClickTimer) {
+        clearTimeout(go2MoveClickTimer);
+        go2MoveClickTimer = null;
+      }
+
+      go2LastMoveClickCommand = command;
+      go2LastMoveClickTimeMs = nowMs;
+
+      // 延迟一点点发送单击命令，给双击判断留时间
+      go2MoveClickTimer = setTimeout(() => {
+        go2MoveClickTimer = null;
+        sendGo2MotionCommand(command);
+      }, go2DoubleClickWindowMs);
     }
 
     function log(message) {
@@ -420,12 +673,61 @@ DASHBOARD_HTML = r"""
       }
     }
 
-    async function sendCommand(command) {
+    function setGo2ButtonsDisabled(disabled) {
+      const buttons = document.querySelectorAll("button[onclick*='sendGo2MotionCommand']");
+      buttons.forEach((btn) => {
+        const onclickText = btn.getAttribute("onclick") || "";
+        const isEmergency = onclickText.includes("EMERGENCY_STOP");
+        const isStop = onclickText.includes("STOP_MOVE");
+
+        // 急停和停止永远不禁用
+        if (!isEmergency && !isStop) {
+          btn.disabled = disabled;
+        }
+      });
+    }
+
+    async function sendGo2MotionCommand(command, options = {}) {
+      const commandCn = go2CommandNameMap[command] || command;
+      const statusEl = document.getElementById("go2MotionStatus");
       const robotId = getRobotId();
 
-      if (command === 'EMERGENCY_STOP') {
-        const ok = confirm('确认发送 EMERGENCY_STOP？');
-        if (!ok) return;
+      if (!robotId) {
+        const msg = "Robot ID 为空，无法发送命令";
+        statusEl.innerText = "运动控制状态：" + msg;
+        log("发送失败：" + msg);
+        return;
+      }
+
+      const nowMs = Date.now();
+      const bypassCooldown = options && options.bypassCooldown === true;
+
+      if (!bypassCooldown && command !== "EMERGENCY_STOP" && nowMs - go2LastCommandTimeMs < go2CommandCooldownMs) {
+        const msg = "防连点生效，忽略过快命令：" + commandCn + " / " + command;
+        statusEl.innerText = "运动控制状态：" + msg;
+        log(msg);
+        return;
+      }
+
+      if (go2DangerCommands.has(command)) {
+        const ok = window.confirm(
+          "确认执行危险姿态动作？\n\n" +
+          "动作：" + commandCn + " / " + command + "\n\n" +
+          "请确认 GO2 周围空旷、地面平整，并且手边保留遥控器/急停方式。"
+        );
+
+        if (!ok) {
+          log("已取消危险命令：" + commandCn + " / " + command);
+          return;
+        }
+      }
+
+      go2LastCommandTimeMs = nowMs;
+      statusEl.innerText = "运动控制状态：正在发送 " + commandCn + " / " + command + " ...";
+      log("发送命令：" + commandCn + " / " + command + "，robot_id=" + robotId);
+
+      if (command !== "EMERGENCY_STOP") {
+        setGo2ButtonsDisabled(true);
       }
 
       try {
@@ -440,466 +742,39 @@ DASHBOARD_HTML = r"""
           }
         );
 
-        const data = await res.json();
+        const text = await res.text();
+        let data = {};
+        try {
+          data = text ? JSON.parse(text) : {};
+        } catch (e) {
+          data = { raw: text };
+        }
 
         if (!res.ok) {
           throw new Error(JSON.stringify(data));
         }
 
-        log(`命令已发送：${command}, command_id=${data.command_id}`);
+        const okMsg = "已发送：" + commandCn + " / " + command;
+        statusEl.innerText = "运动控制状态：" + okMsg;
+        log(`${okMsg}, command_id=${data.command_id || '-'}`);
         refreshStatus();
       } catch (err) {
-        log(`命令发送失败：${command}, error=${String(err)}`);
+        const msg = "发送失败：" + commandCn + " / " + command + "，" + String(err);
+        statusEl.innerText = "运动控制状态：" + msg;
+        log(msg);
+      } finally {
+        if (command !== "EMERGENCY_STOP") {
+          setTimeout(() => {
+            setGo2ButtonsDisabled(false);
+          }, go2CommandCooldownMs);
+        }
       }
     }
 
     refreshStatus();
     setInterval(refreshStatus, 1000);
+    log("Dashboard 已加载：视频与常用控制按钮已合并到同一区域。");
   </script>
-
-<!-- GO2_MOTION_CONTROL_PANEL_V1 -->
-<style>
-  .go2-motion-panel {
-    margin: 20px 0;
-    padding: 16px;
-    border: 1px solid #d0d7de;
-    border-radius: 12px;
-    background: #f6f8fa;
-  }
-
-  .go2-motion-panel h2 {
-    margin: 0 0 12px 0;
-    font-size: 20px;
-  }
-
-  .go2-motion-hint {
-    margin: 8px 0 14px 0;
-    color: #57606a;
-    font-size: 14px;
-    line-height: 1.5;
-  }
-
-  .go2-motion-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 110px);
-    grid-template-rows: repeat(4, 52px);
-    gap: 10px;
-    align-items: center;
-  }
-
-  .go2-motion-btn {
-    height: 48px;
-    border: none;
-    border-radius: 10px;
-    background: #0969da;
-    color: white;
-    font-size: 16px;
-    font-weight: 600;
-    cursor: pointer;
-  }
-
-  .go2-motion-btn:hover {
-    background: #0550ae;
-  }
-
-  .go2-motion-btn.stop {
-    background: #6e7781;
-  }
-
-  .go2-motion-btn.stop:hover {
-    background: #57606a;
-  }
-
-  .go2-motion-btn.estop {
-    background: #cf222e;
-  }
-
-  .go2-motion-btn.estop:hover {
-    background: #a40e26;
-  }
-
-  .go2-motion-status {
-    margin-top: 12px;
-    font-size: 14px;
-    color: #24292f;
-  }
-</style>
-
-<div class="go2-motion-panel">
-  <h2>GO2 安全运动控制</h2>
-  <div class="go2-motion-hint">
-    当前模式：点击一次按钮，执行一小段动作，然后自动停止。测试前请保证 GO2 周围空旷，手边保留遥控器/急停方式。
-  </div>
-
-  <div style="margin-bottom: 12px;">
-    <label for="go2RobotIdInput">Robot ID：</label>
-    <input id="go2RobotIdInput" value="GO2_001" style="height: 30px; padding: 4px 8px; border-radius: 6px; border: 1px solid #d0d7de;">
-    <span style="font-size: 13px; color: #57606a;">如果按钮无效，把这里改成你后台实际的 robot_id。</span>
-  </div>
-
-  <div class="go2-motion-grid">
-    <div></div>
-    <button class="go2-motion-btn" onclick="sendGo2MotionCommand('MOVE_FORWARD')">前进</button>
-    <div></div>
-
-    <button class="go2-motion-btn" onclick="sendGo2MotionCommand('MOVE_LEFT')">左移</button>
-    <button class="go2-motion-btn stop" onclick="sendGo2MotionCommand('STOP_MOVE')">停止</button>
-    <button class="go2-motion-btn" onclick="sendGo2MotionCommand('MOVE_RIGHT')">右移</button>
-
-    <div></div>
-    <button class="go2-motion-btn" onclick="sendGo2MotionCommand('MOVE_BACKWARD')">后退</button>
-    <div></div>
-
-    <button class="go2-motion-btn" onclick="sendGo2MotionCommand('TURN_LEFT')">左转</button>
-    <button class="go2-motion-btn estop" onclick="sendGo2MotionCommand('EMERGENCY_STOP')">急停</button>
-    <button class="go2-motion-btn" onclick="sendGo2MotionCommand('TURN_RIGHT')">右转</button>
-  </div>
-
-  <div id="go2MotionStatus" class="go2-motion-status">运动控制状态：等待操作</div>
-</div>
-
-<script>
-  async function sendGo2MotionCommand(command) {
-    const statusEl = document.getElementById("go2MotionStatus");
-    const robotIdInput = document.getElementById("go2RobotIdInput");
-
-    const robotId = robotIdInput && robotIdInput.value
-      ? robotIdInput.value.trim()
-      : "GO2_001";
-
-    if (!robotId) {
-      statusEl.innerText = "运动控制状态：Robot ID 为空，无法发送命令";
-      return;
-    }
-
-    statusEl.innerText = "运动控制状态：正在发送 " + command + " ...";
-
-    try {
-      const response = await fetch("/api/robot/" + encodeURIComponent(robotId) + "/command/" + encodeURIComponent(command), {
-        method: "POST"
-      });
-
-      let responseText = "";
-      try {
-        responseText = await response.text();
-      } catch (e) {
-        responseText = "";
-      }
-
-      if (!response.ok) {
-        statusEl.innerText = "运动控制状态：发送失败 " + command + "，HTTP " + response.status + "，" + responseText;
-        console.error("GO2 command failed:", command, response.status, responseText);
-        return;
-      }
-
-      statusEl.innerText = "运动控制状态：已发送 " + command;
-      console.log("GO2 command sent:", command, responseText);
-    } catch (error) {
-      statusEl.innerText = "运动控制状态：发送异常 " + command + "，" + error;
-      console.error("GO2 command error:", command, error);
-    }
-  }
-</script>
-
-
-<!-- GO2_POSTURE_CONTROL_PANEL_V1 -->
-<style>
-  .go2-posture-panel {
-    margin: 20px 0;
-    padding: 16px;
-    border: 1px solid #d0d7de;
-    border-radius: 12px;
-    background: #fff8c5;
-  }
-
-  .go2-posture-panel h2 {
-    margin: 0 0 12px 0;
-    font-size: 20px;
-  }
-
-  .go2-posture-hint {
-    margin: 8px 0 14px 0;
-    color: #57606a;
-    font-size: 14px;
-    line-height: 1.5;
-  }
-
-  .go2-posture-grid {
-    display: grid;
-    grid-template-columns: repeat(4, 120px);
-    gap: 10px;
-    align-items: center;
-  }
-
-  .go2-posture-btn {
-    height: 48px;
-    border: none;
-    border-radius: 10px;
-    background: #8250df;
-    color: white;
-    font-size: 15px;
-    font-weight: 600;
-    cursor: pointer;
-  }
-
-  .go2-posture-btn:hover {
-    background: #6639ba;
-  }
-
-  .go2-posture-btn.safe {
-    background: #1a7f37;
-  }
-
-  .go2-posture-btn.safe:hover {
-    background: #116329;
-  }
-
-  .go2-posture-btn.warn {
-    background: #bf8700;
-  }
-
-  .go2-posture-btn.warn:hover {
-    background: #9a6700;
-  }
-
-  .go2-posture-btn.danger {
-    background: #cf222e;
-  }
-
-  .go2-posture-btn.danger:hover {
-    background: #a40e26;
-  }
-</style>
-
-<div class="go2-posture-panel">
-  <h2>GO2 姿态控制</h2>
-
-  <div class="go2-posture-hint">
-    当前区域用于第二批高层姿态动作。测试前请保证 GO2 周围空旷、地面平整，手边保留遥控器/急停方式。
-    建议顺序：站立 → 平衡站立 → 恢复站立 → 卧倒 → 站立 → 坐下 → 起坐。
-    阻尼保护 DAMP 请谨慎使用。
-  </div>
-
-  <div class="go2-posture-grid">
-    <button class="go2-posture-btn safe" onclick="sendGo2MotionCommand('STAND_UP')">站立</button>
-    <button class="go2-posture-btn safe" onclick="sendGo2MotionCommand('BALANCE_STAND')">平衡站立</button>
-    <button class="go2-posture-btn safe" onclick="sendGo2MotionCommand('RECOVERY_STAND')">恢复站立</button>
-    <button class="go2-posture-btn warn" onclick="sendGo2MotionCommand('STAND_DOWN')">卧倒</button>
-
-    <button class="go2-posture-btn" onclick="sendGo2MotionCommand('SIT')">坐下</button>
-    <button class="go2-posture-btn" onclick="sendGo2MotionCommand('RISE_SIT')">起坐</button>
-    <button class="go2-posture-btn danger" onclick="sendGo2MotionCommand('DAMP')">阻尼保护</button>
-    <button class="go2-posture-btn danger" onclick="sendGo2MotionCommand('EMERGENCY_STOP')">急停</button>
-  </div>
-</div>
-
-
-<!-- GO2_DASHBOARD_SAFETY_V1 -->
-<style>
-  .go2-command-log-panel {
-    margin: 20px 0;
-    padding: 16px;
-    border: 1px solid #d0d7de;
-    border-radius: 12px;
-    background: #ffffff;
-  }
-
-  .go2-command-log-panel h2 {
-    margin: 0 0 12px 0;
-    font-size: 20px;
-  }
-
-  .go2-command-log {
-    height: 180px;
-    overflow-y: auto;
-    padding: 10px;
-    border: 1px solid #d0d7de;
-    border-radius: 8px;
-    background: #f6f8fa;
-    font-family: monospace;
-    font-size: 13px;
-    line-height: 1.5;
-    white-space: pre-wrap;
-  }
-
-  .go2-command-log-tip {
-    color: #57606a;
-    font-size: 14px;
-    margin-bottom: 10px;
-  }
-</style>
-
-<div class="go2-command-log-panel">
-  <h2>GO2 命令日志</h2>
-  <div class="go2-command-log-tip">
-    这里记录 Dashboard 发出的运动/姿态命令。急停不受防连点限制；危险姿态动作会二次确认。
-  </div>
-  <div id="go2CommandLog" class="go2-command-log">等待命令...</div>
-</div>
-
-<script>
-  let go2LastCommandTimeMs = 0;
-  const go2CommandCooldownMs = 900;
-
-  const go2DangerCommands = new Set([
-    "DAMP",
-    "STAND_DOWN",
-    "SIT"
-  ]);
-
-  const go2CommandNameMap = {
-    "MOVE_FORWARD": "前进",
-    "MOVE_BACKWARD": "后退",
-    "MOVE_LEFT": "左移",
-    "MOVE_RIGHT": "右移",
-    "TURN_LEFT": "左转",
-    "TURN_RIGHT": "右转",
-    "STOP_MOVE": "停止",
-    "EMERGENCY_STOP": "急停",
-    "STAND_DOWN": "卧倒",
-    "STAND_UP": "站立",
-    "BALANCE_STAND": "平衡站立",
-    "RECOVERY_STAND": "恢复站立",
-    "SIT": "坐下",
-    "RISE_SIT": "起坐",
-    "DAMP": "阻尼保护"
-  };
-
-  function go2NowText() {
-    const d = new Date();
-    return d.toLocaleTimeString();
-  }
-
-  function appendGo2CommandLog(text) {
-    const logEl = document.getElementById("go2CommandLog");
-    if (!logEl) {
-      return;
-    }
-
-    if (logEl.innerText === "等待命令...") {
-      logEl.innerText = "";
-    }
-
-    logEl.innerText += "[" + go2NowText() + "] " + text + "\n";
-    logEl.scrollTop = logEl.scrollHeight;
-  }
-
-  function setGo2ButtonsDisabled(disabled) {
-    const buttons = document.querySelectorAll("button[onclick*='sendGo2MotionCommand']");
-    buttons.forEach((btn) => {
-      const onclickText = btn.getAttribute("onclick") || "";
-      const isEmergency = onclickText.includes("EMERGENCY_STOP");
-
-      // 急停按钮永远不禁用
-      if (!isEmergency) {
-        btn.disabled = disabled;
-        btn.style.opacity = disabled ? "0.65" : "1.0";
-        btn.style.cursor = disabled ? "not-allowed" : "pointer";
-      }
-    });
-  }
-
-  async function sendGo2MotionCommand(command) {
-    const commandCn = go2CommandNameMap[command] || command;
-    const statusEl = document.getElementById("go2MotionStatus");
-    const robotIdInput = document.getElementById("go2RobotIdInput");
-
-    const robotId = robotIdInput && robotIdInput.value
-      ? robotIdInput.value.trim()
-      : "GO2_001";
-
-    if (!robotId) {
-      const msg = "Robot ID 为空，无法发送命令";
-      if (statusEl) {
-        statusEl.innerText = "运动控制状态：" + msg;
-      }
-      appendGo2CommandLog("发送失败：" + msg);
-      return;
-    }
-
-    // 急停不受防连点限制，其他命令限制连续点击
-    const nowMs = Date.now();
-    if (command !== "EMERGENCY_STOP" && nowMs - go2LastCommandTimeMs < go2CommandCooldownMs) {
-      const msg = "防连点生效，忽略过快命令：" + commandCn + " / " + command;
-      if (statusEl) {
-        statusEl.innerText = "运动控制状态：" + msg;
-      }
-      appendGo2CommandLog(msg);
-      return;
-    }
-
-    if (go2DangerCommands.has(command)) {
-      const ok = window.confirm(
-        "确认执行危险姿态动作？\n\n" +
-        "动作：" + commandCn + " / " + command + "\n\n" +
-        "请确认 GO2 周围空旷、地面平整，并且手边保留遥控器/急停方式。"
-      );
-
-      if (!ok) {
-        appendGo2CommandLog("已取消危险命令：" + commandCn + " / " + command);
-        return;
-      }
-    }
-
-    go2LastCommandTimeMs = nowMs;
-
-    if (statusEl) {
-      statusEl.innerText = "运动控制状态：正在发送 " + commandCn + " / " + command + " ...";
-    }
-    appendGo2CommandLog("发送命令：" + commandCn + " / " + command + "，robot_id=" + robotId);
-
-    if (command !== "EMERGENCY_STOP") {
-      setGo2ButtonsDisabled(true);
-    }
-
-    try {
-      const response = await fetch(
-        "/api/robot/" + encodeURIComponent(robotId) + "/command/" + encodeURIComponent(command),
-        { method: "POST" }
-      );
-
-      let responseText = "";
-      try {
-        responseText = await response.text();
-      } catch (e) {
-        responseText = "";
-      }
-
-      if (!response.ok) {
-        const msg = "发送失败：" + commandCn + " / " + command + "，HTTP " + response.status + "，" + responseText;
-        if (statusEl) {
-          statusEl.innerText = "运动控制状态：" + msg;
-        }
-        appendGo2CommandLog(msg);
-        console.error("GO2 command failed:", command, response.status, responseText);
-        return;
-      }
-
-      const okMsg = "已发送：" + commandCn + " / " + command;
-      if (statusEl) {
-        statusEl.innerText = "运动控制状态：" + okMsg;
-      }
-      appendGo2CommandLog(okMsg);
-      console.log("GO2 command sent:", command, responseText);
-    } catch (error) {
-      const msg = "发送异常：" + commandCn + " / " + command + "，" + error;
-      if (statusEl) {
-        statusEl.innerText = "运动控制状态：" + msg;
-      }
-      appendGo2CommandLog(msg);
-      console.error("GO2 command error:", command, error);
-    } finally {
-      if (command !== "EMERGENCY_STOP") {
-        setTimeout(() => {
-          setGo2ButtonsDisabled(false);
-        }, go2CommandCooldownMs);
-      }
-    }
-  }
-
-  appendGo2CommandLog("Dashboard 安全增强已启用：防连点、命令日志、危险动作确认。");
-</script>
-
 </body>
 </html>
 """

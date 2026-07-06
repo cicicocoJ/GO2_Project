@@ -230,12 +230,20 @@ private:
     // First-batch safe motion commands.
     if (command == "MOVE_FORWARD") {
       startTimedMove(+linear_speed_x_, 0.0, 0.0, "MOVE_FORWARD");
+    } else if (command == "MOVE_FORWARD_CONTINUOUS") {
+      startContinuousMove(+linear_speed_x_, 0.0, 0.0, "MOVE_FORWARD_CONTINUOUS");
     } else if (command == "MOVE_BACKWARD") {
       startTimedMove(-linear_speed_x_, 0.0, 0.0, "MOVE_BACKWARD");
+    } else if (command == "MOVE_BACKWARD_CONTINUOUS") {
+      startContinuousMove(-linear_speed_x_, 0.0, 0.0, "MOVE_BACKWARD_CONTINUOUS");
     } else if (command == "MOVE_LEFT") {
       startTimedMove(0.0, +linear_speed_y_, 0.0, "MOVE_LEFT");
+    } else if (command == "MOVE_LEFT_CONTINUOUS") {
+      startContinuousMove(0.0, +linear_speed_y_, 0.0, "MOVE_LEFT_CONTINUOUS");
     } else if (command == "MOVE_RIGHT") {
       startTimedMove(0.0, -linear_speed_y_, 0.0, "MOVE_RIGHT");
+    } else if (command == "MOVE_RIGHT_CONTINUOUS") {
+      startContinuousMove(0.0, -linear_speed_y_, 0.0, "MOVE_RIGHT_CONTINUOUS");
     } else if (command == "TURN_LEFT") {
       startTimedMove(0.0, 0.0, +yaw_speed_, "TURN_LEFT");
     } else if (command == "TURN_RIGHT") {
@@ -284,6 +292,32 @@ private:
       this->get_logger(),
       "Start timed move: %s, vx=%.3f, vy=%.3f, vyaw=%.3f, duration=%.3f sec",
       command_name.c_str(), current_vx_, current_vy_, current_vyaw_, move_duration_sec_
+    );
+
+    sendMoveUnsafe(current_vx_, current_vy_, current_vyaw_);
+  }
+
+  void startContinuousMove(double vx, double vy, double vyaw, const std::string & command_name)
+  {
+    std::lock_guard<std::mutex> lock(motion_mutex_);
+
+    vx = clampAbs(vx, max_linear_speed_x_);
+    vy = clampAbs(vy, max_linear_speed_y_);
+    vyaw = clampAbs(vyaw, max_yaw_speed_);
+
+    current_vx_ = vx;
+    current_vy_ = vy;
+    current_vyaw_ = vyaw;
+    active_motion_ = true;
+    continuous_motion_ = true;
+
+    // This timestamp is not used for continuous motion, but keeps state valid.
+    motion_end_time_ = this->now();
+
+    RCLCPP_WARN(
+      this->get_logger(),
+      "Start CONTINUOUS move: %s, vx=%.3f, vy=%.3f, vyaw=%.3f. It will keep moving until STOP_MOVE or EMERGENCY_STOP.",
+      command_name.c_str(), current_vx_, current_vy_, current_vyaw_
     );
 
     sendMoveUnsafe(current_vx_, current_vy_, current_vyaw_);
@@ -370,7 +404,7 @@ private:
       return;
     }
 
-    if (this->now() >= motion_end_time_) {
+    if (!continuous_motion_ && this->now() >= motion_end_time_) {
       clearMotionStateUnsafe();
       sendStopUnsafe();
       RCLCPP_INFO(this->get_logger(), "Timed move finished. Auto StopMove sent.");
@@ -383,6 +417,7 @@ private:
   void clearMotionStateUnsafe()
   {
     active_motion_ = false;
+    continuous_motion_ = false;
     current_vx_ = 0.0;
     current_vy_ = 0.0;
     current_vyaw_ = 0.0;
@@ -409,6 +444,7 @@ private:
   std::mutex motion_mutex_;
 
   bool active_motion_{false};
+  bool continuous_motion_{false};
   double current_vx_{0.0};
   double current_vy_{0.0};
   double current_vyaw_{0.0};
