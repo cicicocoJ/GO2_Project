@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+if [ -f "$SCRIPT_DIR/go2_network.env" ]; then
+  source "$SCRIPT_DIR/go2_network.env"
+fi
 
 WS="$HOME/GO2_Project/go2_bridge_ws"
 PID_DIR="$WS/logs/pids"
 
 JETSON_USER="${JETSON_USER:-unitree}"
-JETSON_IP="${JETSON_IP:-192.168.123.18}"
+JETSON_IP="${JETSON_IP:-192.168.7.149}"
 
 echo "============================================================"
 echo " GO2 Full System Stop"
@@ -34,7 +38,7 @@ if [ -f "$PID_DIR/backend_server.pid" ]; then
 fi
 
 if command -v fuser >/dev/null 2>&1; then
-  fuser -k 8000/tcp >/dev/null 2>&1 || true
+  fuser -k ${BACKEND_PORT}/tcp >/dev/null 2>&1 || true
 fi
 
 echo "[OK] GO2 full system stopped."

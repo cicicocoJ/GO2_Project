@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+if [ -f "$SCRIPT_DIR/go2_network.env" ]; then
+  source "$SCRIPT_DIR/go2_network.env"
+fi
 
-BACKEND_IP="${1:-192.168.123.99}"
+BACKEND_IP="${1:-${BACKEND_IP:-192.168.7.124}}"
 
 WS="/home/unitree/go2_bridge_ws"
 LOG_DIR="$WS/logs/runtime"
@@ -81,7 +85,7 @@ start_node "go2_state_reader" \
 sleep 1
 
 start_node "backend_client" \
-  "bash scripts/start_bridge.sh $BACKEND_IP"
+  "BACKEND_PORT=$BACKEND_PORT bash scripts/start_bridge.sh $BACKEND_IP"
 
 sleep 1
 
@@ -121,5 +125,5 @@ echo " Robot side started."
 echo " Logs:"
 echo "   $LOG_DIR"
 echo " Video:"
-echo "   http://192.168.123.18:8081/"
+echo "   http://$JETSON_IP:$JETSON_VIDEO_PORT/"
 echo "============================================================"

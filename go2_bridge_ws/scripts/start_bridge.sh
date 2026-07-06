@@ -10,21 +10,28 @@ set -e
 #
 # 默认：
 #   robot_id = GO2_001
-#   backend_ip = 192.168.123.99
+#   backend_ip = 192.168.7.124
 #   backend_port = 8000
 #
 # 使用方法：
 #   bash scripts/start_bridge.sh
 #
 # 指定后台 IP：
-#   bash scripts/start_bridge.sh 192.168.123.99
+#   bash scripts/start_bridge.sh 192.168.7.124
 #
 # 或者：
-#   BACKEND_IP=192.168.123.99 bash scripts/start_bridge.sh
+#   BACKEND_IP=192.168.7.124 bash scripts/start_bridge.sh
 # ============================================================
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# Load network config if present.
+if [ -f "$SCRIPT_DIR/go2_network.env" ]; then
+  source "$SCRIPT_DIR/go2_network.env"
+fi
+
 ROBOT_ID="${ROBOT_ID:-GO2_001}"
-BACKEND_IP="${1:-${BACKEND_IP:-192.168.123.99}}"
+BACKEND_IP="${1:-${BACKEND_IP:-192.168.7.124}}"
 BACKEND_PORT="${BACKEND_PORT:-8000}"
 JETSON_WS="${JETSON_WS:-/home/unitree/go2_bridge_ws}"
 

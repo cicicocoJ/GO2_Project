@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 set -e
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+if [ -f "$SCRIPT_DIR/go2_network.env" ]; then
+  source "$SCRIPT_DIR/go2_network.env"
+fi
 
 # ============================================================
 # 同步 GO2 backend bridge 源码到 Jetson
@@ -15,7 +19,7 @@ set -e
 # ============================================================
 
 JETSON_USER="${JETSON_USER:-unitree}"
-JETSON_IP="${JETSON_IP:-192.168.123.18}"
+JETSON_IP="${JETSON_IP:-192.168.7.149}"
 JETSON_WS="${JETSON_WS:-/home/unitree/go2_bridge_ws}"
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
