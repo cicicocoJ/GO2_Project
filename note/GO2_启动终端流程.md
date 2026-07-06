@@ -1,4 +1,23 @@
 # GO2 Dashboard 控制系统启动流程
+ssh unitree@192.168.123.18
+手机热点:
+ssh unitree@192.168.7.149
+
+一键打开
+cd ~/GO2_Project/go2_bridge_ws
+bash scripts/start_all_go2_system.sh
+
+网址
+http://127.0.0.1:8000/dashboard
+http://192.168.123.18:8081/
+
+一键停止
+cd ~/GO2_Project/go2_bridge_ws
+bash scripts/stop_all_go2_system.sh
+
+rviz2启动
+cd ~/GO2_Project/go2_bridge_ws
+bash scripts/start_lidar_rviz_laptop.sh
 
 ## 0. 启动顺序
 
@@ -99,6 +118,9 @@ ros2 run go2_command_control backend_command_handler_node \
 ```
 
 ---
+
+启动雷达
+ssh unitree@192.168.123.18 "bash /home/unitree/go2_bridge_ws/scripts/start_hesai_lidar.sh"
 
 ## 4. 浏览器：打开 Dashboard
 
