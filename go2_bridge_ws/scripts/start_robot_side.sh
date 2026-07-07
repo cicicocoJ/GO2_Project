@@ -1,5 +1,33 @@
 #!/usr/bin/env bash
 set -euo pipefail
+
+force_clean_go2_processes() {
+  echo "[CLEAN] Force clean old GO2 robot-side processes"
+
+  patterns=(
+    "[g]o2_state_reader_node"
+    "[b]ackend_client_node"
+    "[b]ackend_command_handler_node"
+    "[c]amera_capture_node"
+    "[g]o2_camera_stream_server.py"
+    "[h]esai_ros_driver"
+  )
+
+  for pat in "${patterns[@]}"; do
+    pids=$(pgrep -f "$pat" || true)
+    if [ -n "$pids" ]; then
+      echo "[CLEAN] kill $pat -> $pids"
+      echo "$pids" | xargs -r kill -9
+    fi
+  done
+
+  fuser -k 8081/tcp 2>/dev/null || true
+  rm -f /home/unitree/go2_bridge_ws/logs/pids/*.pid 2>/dev/null || true
+  sleep 1
+}
+
+
+force_clean_go2_processes
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 if [ -f "$SCRIPT_DIR/go2_network.env" ]; then
   source "$SCRIPT_DIR/go2_network.env"
@@ -85,7 +113,7 @@ start_node "go2_state_reader" \
 sleep 1
 
 start_node "backend_client" \
-  "BACKEND_PORT=$BACKEND_PORT bash scripts/start_bridge.sh $BACKEND_IP"
+  "env BACKEND_PORT=$BACKEND_PORT bash scripts/start_bridge.sh $BACKEND_IP"
 
 sleep 1
 
@@ -96,7 +124,19 @@ start_node "command_handler" \
     -p linear_speed_y:=0.25 \
     -p yaw_speed:=0.70 \
     -p move_duration_sec:=1.5 \
-    -p control_period_sec:=0.1"
+    -p control_period_sec:=0.1 \
+    -p mapping_cmd_vx:=0.22 \
+    -p mapping_cmd_vy:=0.0 \
+    -p mapping_yaw_deadband_deg:=1.5 \
+    -p mapping_yaw_trigger_deg:=2.0 \
+    -p mapping_yaw_correction_rate:=0.50 \
+    -p mapping_yaw_correction_max:=0.70 \
+    -p mapping_control_period_sec:=0.10 \
+    -p mapping_yaw_pulse_cycles:=1 \
+    -p mapping_forward_step_duration_sec:=1.2 \
+    -p mapping_small_turn_rate:=0.70 \
+    -p mapping_small_turn_duration_sec:=0.20 \
+    -p mapping_log_interval_sec:=1.0"
 
 sleep 1
 

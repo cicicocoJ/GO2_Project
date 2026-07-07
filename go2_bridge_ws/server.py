@@ -16,6 +16,7 @@ GO2 巡检机器人项目的 FastAPI 后台 Demo + Dashboard 页面。
 """
 
 import json
+import os
 import time
 import uuid
 from typing import Any, Dict, Optional
@@ -29,6 +30,19 @@ from fastapi.responses import HTMLResponse
 # ============================================================
 
 app = FastAPI(title='GO2 Backend Demo')
+
+# ============================================================
+# Camera stream config
+# ============================================================
+# Dashboard uses this URL to show the Jetson-side D435i MJPEG stream.
+# These values are normally provided by scripts/go2_network.env.
+JETSON_IP = os.environ.get('JETSON_IP', '192.168.7.149')
+JETSON_VIDEO_PORT = os.environ.get('JETSON_VIDEO_PORT', '8081')
+GO2_VIDEO_STREAM_URL = os.environ.get(
+    'GO2_VIDEO_STREAM_URL',
+    'http://{}:{}/video_feed'.format(JETSON_IP, JETSON_VIDEO_PORT)
+)
+
 
 
 # ============================================================
@@ -435,7 +449,7 @@ DASHBOARD_HTML = r"""
         <h2>实时画面 / D435i RGB</h2>
         <img
           class="camera-stream"
-          src="http://192.168.123.18:8081/video_feed"
+          src="__GO2_VIDEO_STREAM_URL__"
           alt="D435i Live Stream"
         />
       </div>
@@ -785,7 +799,7 @@ async def dashboard():
     """
     Dashboard 页面。
     """
-    return HTMLResponse(content=DASHBOARD_HTML)
+    return HTMLResponse(content=DASHBOARD_HTML.replace('__GO2_VIDEO_STREAM_URL__', GO2_VIDEO_STREAM_URL))
 
 
 # ============================================================

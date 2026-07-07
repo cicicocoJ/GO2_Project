@@ -51,3 +51,32 @@ echo "[STOP] XT-16 Hesai lidar"
 /home/unitree/go2_bridge_ws/scripts/stop_hesai_lidar.sh || true
 
 echo "[OK] Robot side stopped."
+
+
+force_clean_go2_processes() {
+  echo "[CLEAN] Force clean old GO2 robot-side processes"
+
+  patterns=(
+    "[g]o2_state_reader_node"
+    "[b]ackend_client_node"
+    "[b]ackend_command_handler_node"
+    "[c]amera_capture_node"
+    "[g]o2_camera_stream_server.py"
+    "[h]esai_ros_driver"
+  )
+
+  for pat in "${patterns[@]}"; do
+    pids=$(pgrep -f "$pat" || true)
+    if [ -n "$pids" ]; then
+      echo "[CLEAN] kill $pat -> $pids"
+      echo "$pids" | xargs -r kill -9
+    fi
+  done
+
+  fuser -k 8081/tcp 2>/dev/null || true
+  rm -f /home/unitree/go2_bridge_ws/logs/pids/*.pid 2>/dev/null || true
+  sleep 1
+}
+
+
+force_clean_go2_processes

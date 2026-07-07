@@ -10,6 +10,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(nav_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(unitree_api REQUIRED)
 
@@ -30,6 +31,7 @@ add_executable(backend_command_handler_node
 ament_target_dependencies(
   backend_command_handler_node
   rclcpp
+  nav_msgs
   std_msgs
   unitree_api
 )
